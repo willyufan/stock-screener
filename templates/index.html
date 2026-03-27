@@ -1,0 +1,820 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>A股/港股 左右侧筛选器</title>
+<style>
+/* ---- Reset & Base ---- */
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'SF Pro Display',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  background:#0d1117;color:#e6edf3;min-height:100vh;font-size:14px}
+a{color:inherit;text-decoration:none}
+
+/* ---- Layout ---- */
+.page{display:flex;flex-direction:column;height:100vh;overflow:hidden}
+header{flex-shrink:0;background:#161b22;border-bottom:1px solid #30363d;
+  padding:12px 20px;display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+.logo{font-size:16px;font-weight:700;color:#58a6ff;white-space:nowrap}
+.logo span{color:#f0883e}
+.mkt-tabs{display:flex;gap:4px}
+.mkt-tab{padding:5px 14px;border-radius:6px;border:1px solid #30363d;
+  background:transparent;color:#8b949e;cursor:pointer;font-size:13px;font-weight:500;transition:.15s}
+.mkt-tab.active{background:#1f6feb;border-color:#1f6feb;color:#fff}
+.mkt-tab:hover:not(.active){background:#21262d;color:#e6edf3}
+.status-bar{margin-left:auto;display:flex;align-items:center;gap:10px;font-size:12px;color:#8b949e}
+.dot{width:8px;height:8px;border-radius:50%;display:inline-block}
+.dot.green{background:#3fb950;box-shadow:0 0 6px #3fb950}
+.dot.yellow{background:#d29922;animation:pulse 1s infinite}
+.dot.red{background:#f85149}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+.btn-refresh{padding:5px 12px;border-radius:6px;border:1px solid #30363d;
+  background:#21262d;color:#e6edf3;cursor:pointer;font-size:12px;
+  display:flex;align-items:center;gap:5px;transition:.15s}
+.btn-refresh:hover{background:#30363d}
+.btn-refresh:disabled{opacity:.5;cursor:not-allowed}
+.btn-refresh svg{transition:.3s}
+.btn-refresh.spinning svg{animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.btn-fullscan{padding:5px 12px;border-radius:6px;border:1px solid #238636;
+  background:#1a3a1a;color:#3fb950;cursor:pointer;font-size:12px;
+  display:flex;align-items:center;gap:5px;transition:.15s;font-weight:600}
+.btn-fullscan:hover{background:#1f4a1f}
+.btn-fullscan:disabled{opacity:.5;cursor:not-allowed}
+
+/* ---- Full Scan Overlay ---- */
+.scan-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);
+  z-index:200;align-items:center;justify-content:center}
+.scan-overlay.active{display:flex}
+.scan-box{background:#161b22;border:1px solid #30363d;border-radius:12px;
+  padding:32px 40px;text-align:center;min-width:320px;max-width:90vw}
+.scan-box h3{font-size:16px;font-weight:700;color:#e6edf3;margin-bottom:6px}
+.scan-box p{font-size:12px;color:#8b949e;margin-bottom:20px}
+.scan-progress-bar{width:100%;height:6px;background:#21262d;border-radius:3px;overflow:hidden;margin-bottom:10px}
+.scan-progress-fill{height:100%;background:linear-gradient(90deg,#238636,#3fb950);
+  border-radius:3px;transition:width .4s}
+.scan-progress-text{font-size:12px;color:#8b949e}
+.scan-last{margin-top:14px;font-size:11px;color:#8b949e;border-top:1px solid #21262d;padding-top:12px}
+
+.main{display:flex;flex:1;overflow:hidden;gap:0}
+.panel{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0;
+  border-right:1px solid #30363d}
+.panel:last-child{border-right:none}
+.panel-header{flex-shrink:0;padding:10px 16px;background:#161b22;
+  border-bottom:1px solid #30363d;display:flex;align-items:center;gap:8px}
+.panel-title{font-size:14px;font-weight:600;display:flex;align-items:center;gap:6px}
+.badge{padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600}
+.badge.right{background:#1a3a1a;color:#3fb950;border:1px solid #238636}
+.badge.left{background:#3a1a1a;color:#f85149;border:1px solid #da3633}
+.badge.other{background:#1a2a3a;color:#58a6ff;border:1px solid #1f6feb}
+.panel-count{color:#8b949e;font-size:12px}
+.sort-btns{margin-left:auto;display:flex;gap:3px}
+.sort-btns button{padding:3px 7px;border-radius:4px;border:1px solid #30363d;
+  background:transparent;color:#8b949e;cursor:pointer;font-size:10px;transition:.12s}
+.sort-btns button:hover{background:#21262d;color:#e6edf3}
+.sort-btns button.active{background:#1f3a5a;border-color:#1f6feb;color:#58a6ff}
+.btn-dcf{padding:5px 12px;border-radius:6px;border:1px solid #6e40c9;
+  background:#1a1a3a;color:#d2a8ff;cursor:pointer;font-size:12px;
+  display:flex;align-items:center;gap:5px;transition:.15s;font-weight:600;text-decoration:none}
+.btn-dcf:hover{background:#21262d}
+
+.stock-list{flex:1;overflow-y:auto;padding:8px}
+.stock-list::-webkit-scrollbar{width:6px}
+.stock-list::-webkit-scrollbar-track{background:#0d1117}
+.stock-list::-webkit-scrollbar-thumb{background:#30363d;border-radius:3px}
+
+/* ---- Stock Card ---- */
+.stock-card{background:#161b22;border:1px solid #21262d;border-radius:8px;
+  margin-bottom:8px;overflow:hidden;transition:.15s}
+.stock-card:hover{border-color:#30363d}
+.card-header{padding:10px 12px;display:flex;align-items:center;gap:8px;
+  cursor:pointer;user-select:none}
+.stock-code{font-size:12px;color:#8b949e;min-width:52px;font-family:monospace}
+.stock-name{font-weight:600;font-size:13px;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.stock-price{font-size:14px;font-weight:700;font-family:monospace;min-width:55px;text-align:right}
+.stock-chg{font-size:12px;font-weight:600;min-width:52px;text-align:right;font-family:monospace}
+.up{color:#f85149}.dn{color:#3fb950}.flat{color:#8b949e}
+.mktcap{font-size:11px;color:#8b949e;white-space:nowrap}
+.side-tag{padding:2px 7px;border-radius:4px;font-size:11px;font-weight:600;
+  white-space:nowrap}
+.side-tag.右侧{background:#1a3a1a;color:#3fb950}
+.side-tag.左侧{background:#3a1a1a;color:#f85149}
+.side-tag.观望{background:#1a2035;color:#58a6ff}
+.strength-tag{padding:2px 7px;border-radius:4px;font-size:10px;font-weight:700;white-space:nowrap}
+.strength-tag.buy{background:#0d2818;color:#3fb950;border:1px solid #238636}
+.strength-tag.strong-buy{background:#1a4a1a;color:#56d364;border:1px solid #2ea043}
+.strength-tag.value{background:#1a1a3a;color:#79c0ff;border:1px solid #1f6feb}
+.strength-tag.sell{background:#3a2200;color:#f0883e;border:1px solid #9e6a03}
+.strength-tag.strong-sell{background:#3a0a0a;color:#f85149;border:1px solid #da3633}
+.strength-tag.watch{background:#1a1a1a;color:#8b949e;border:1px solid #30363d}
+.value-tag-badge{padding:2px 7px;border-radius:4px;font-size:10px;font-weight:600;
+  white-space:nowrap;background:#1a1a3a;color:#79c0ff;border:1px solid #1f6feb}
+.expand-icon{color:#8b949e;transition:.2s;flex-shrink:0}
+.card-body{display:none;padding:0 12px 12px}
+.card-body.open{display:block}
+.card-signals{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px}
+.signal-chip{padding:2px 7px;background:#21262d;border-radius:4px;
+  font-size:11px;color:#8b949e;border:1px solid #30363d}
+.card-stats{display:flex;gap:12px;margin-bottom:8px;font-size:11px;color:#8b949e}
+.card-stats span b{color:#e6edf3;font-weight:600}
+.volume-bar{display:flex;align-items:center;gap:6px;margin-bottom:8px}
+.vol-label{font-size:11px;color:#8b949e;min-width:80px}
+.vol-indicator{font-size:11px;color:#58a6ff;font-weight:600}
+.vol-warn{color:#f0883e}
+
+/* ---- Price History Table ---- */
+.price-table{width:100%;border-collapse:collapse;font-size:11px;font-family:monospace}
+.price-table th{text-align:right;padding:4px 6px;color:#8b949e;border-bottom:1px solid #21262d;
+  white-space:nowrap;font-weight:500}
+.price-table th:first-child{text-align:left}
+.price-table td{text-align:right;padding:3px 6px;border-bottom:1px solid #161b22;
+  white-space:nowrap}
+.price-table td:first-child{text-align:left;color:#8b949e}
+.price-table tr:hover td{background:#1c2128}
+.price-table tr.today td{background:#1a2035}
+
+/* ---- Loading / Empty States ---- */
+.state-msg{display:flex;flex-direction:column;align-items:center;
+  justify-content:center;height:100%;gap:12px;color:#8b949e;padding:40px}
+.state-msg svg{opacity:.3}
+.progress-bar{width:200px;height:4px;background:#21262d;border-radius:2px;overflow:hidden}
+.progress-fill{height:100%;background:#1f6feb;border-radius:2px;transition:width .3s}
+.progress-text{font-size:12px;color:#8b949e}
+
+/* ---- Stats bar ---- */
+.stats-bar{padding:6px 16px;background:#0d1117;border-bottom:1px solid #21262d;
+  display:flex;gap:16px;font-size:11px;color:#8b949e;flex-shrink:0;flex-wrap:wrap;align-items:center}
+.stats-bar b{color:#e6edf3}
+
+/* ---- History select ---- */
+.history-wrap{display:flex;align-items:center;gap:6px;font-size:12px;color:#8b949e}
+.history-select{background:#21262d;border:1px solid #30363d;color:#e6edf3;
+  border-radius:6px;padding:4px 8px;font-size:12px;cursor:pointer;max-width:260px}
+.history-select:focus{outline:none;border-color:#58a6ff}
+
+/* ---- Toast ---- */
+.toast{position:fixed;bottom:28px;left:50%;transform:translateX(-50%);
+  background:#238636;color:#fff;padding:9px 20px;border-radius:8px;font-size:13px;
+  font-weight:500;z-index:999;opacity:0;transition:opacity .25s;pointer-events:none;
+  white-space:nowrap}
+.toast.show{opacity:1}
+.toast.warn{background:#9e6a03}
+
+@media(max-width:900px){
+  .main{flex-direction:column}
+  .panel{border-right:none;border-bottom:1px solid #30363d;min-height:300px}
+}
+</style>
+</head>
+<body>
+<div class="page">
+
+<!-- ── Header ─────────────────────────────────────────────── -->
+<header>
+  <div class="logo">股票筛选器 <span>⬡</span></div>
+
+  <div class="mkt-tabs">
+    <button class="mkt-tab active" data-mkt="a_share">A股</button>
+    <button class="mkt-tab" data-mkt="hk">港股</button>
+  </div>
+
+  <div class="status-bar">
+    <span id="statusDot" class="dot red"></span>
+    <span id="statusText">未加载</span>
+    <span id="lastUpdate" style="color:#8b949e"></span>
+    <div class="history-wrap">
+      <select id="historySelect" class="history-select" onchange="loadSnapshot(this.value)" style="display:none">
+        <option value="">── 历史快照 ──</option>
+      </select>
+    </div>
+    <button class="btn-refresh" id="btnRefresh" onclick="triggerScan()">
+      <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor">
+        <path d="M1.705 8a6.3 6.3 0 0 1 11.91-2.205L11 7h5V2l-1.957 1.957A7.8 7.8 0 0 0 .2 8.5l1.5.1A6.3 6.3 0 0 1 1.705 8Zm12.59 0A6.3 6.3 0 0 1 2.385 10.205L5 9H0v5l1.957-1.957A7.8 7.8 0 0 0 15.8 7.5l-1.5-.1A6.3 6.3 0 0 1 14.295 8Z"/>
+      </svg>
+      扫描
+    </button>
+    <button class="btn-fullscan" id="btnFullScan" onclick="triggerFullScan()" title="扫描全市场A股，找出所有符合条件的股票并保存">
+      ⚡ 全量扫描
+    </button>
+    <a class="btn-dcf" href="/dcf" title="DCF内在价值估算">
+      <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor">
+        <path d="M0 11.5a.5.5 0 0 1 .5-.5h2a.5.5 0 0 1 0 1h-2a.5.5 0 0 1-.5-.5zm0-4a.5.5 0 0 1 .5-.5h5a.5.5 0 0 1 0 1h-5a.5.5 0 0 1-.5-.5zm0-4a.5.5 0 0 1 .5-.5h9a.5.5 0 0 1 0 1h-9a.5.5 0 0 1-.5-.5zm10.38 8.964l3.953-3.953a.25.25 0 0 0 0-.354l-1.06-1.06a.25.25 0 0 0-.354 0l-3.953 3.952V14h1.414zM10 11.06l-1.5 1.5V14h1.5V11.06z"/>
+      </svg>
+      DCF 估值
+    </a>
+  </div>
+</header>
+
+<!-- ── 全量扫描弹窗 ──────────────────────────────────────── -->
+<div class="scan-overlay" id="scanOverlay">
+  <div class="scan-box">
+    <h3>⚡ 全量扫描进行中</h3>
+    <p>正在扫描全市场A股（约需 10~30 分钟）<br>完成后结果自动保存，下次刷新将包含这些股票</p>
+    <div class="scan-progress-bar">
+      <div class="scan-progress-fill" id="scanProgFill" style="width:0%"></div>
+    </div>
+    <div class="scan-progress-text" id="scanProgText">准备中...</div>
+    <div class="scan-last" id="scanLast" style="display:none"></div>
+  </div>
+</div>
+
+<!-- ── Stats Bar ────────────────────────────────────────────── -->
+<div class="stats-bar" id="statsBar" style="display:none">
+  筛选条件：市值&gt;100亿（CSI800代理）&nbsp;|&nbsp; 30日均成交额&gt;1亿
+  &nbsp;|&nbsp; 总计 <b id="statTotal">0</b> 只
+  &nbsp;|&nbsp; <span style="color:#3fb950">右侧 <b id="statRight">0</b></span>
+  &nbsp;|&nbsp; <span style="color:#f85149">左侧 <b id="statLeft">0</b></span>
+  &nbsp;|&nbsp; <span style="color:#58a6ff">观望 <b id="statOther">0</b></span>
+</div>
+
+<!-- ── Main ─────────────────────────────────────────────────── -->
+<div class="main">
+
+  <!-- 右侧 Panel -->
+  <div class="panel">
+    <div class="panel-header">
+      <div class="panel-title">
+        <span class="badge right">右侧</span>
+        趋势确认上涨
+      </div>
+      <span class="panel-count" id="rightCount">— 只</span>
+      <div class="sort-btns" id="rightSortBtns">
+        <button onclick="sortPanel('right','score')" class="active" data-key="score">得分</button>
+        <button onclick="sortPanel('right','chg_desc')" data-key="chg_desc">涨幅↓</button>
+        <button onclick="sortPanel('right','chg_asc')" data-key="chg_asc">涨幅↑</button>
+        <button onclick="sortPanel('right','vol')" data-key="vol">成交额</button>
+      </div>
+    </div>
+    <div class="stock-list" id="rightList">
+      <div class="state-msg" id="rightMsg">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>
+        </svg>
+        <div>等待数据加载…</div>
+        <div class="progress-bar"><div class="progress-fill" id="rightProg" style="width:0%"></div></div>
+        <div class="progress-text" id="rightProgText"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 左侧 Panel -->
+  <div class="panel">
+    <div class="panel-header">
+      <div class="panel-title">
+        <span class="badge left">左侧</span>
+        超跌触底反弹
+      </div>
+      <span class="panel-count" id="leftCount">— 只</span>
+      <div class="sort-btns" id="leftSortBtns">
+        <button onclick="sortPanel('left','score')" class="active" data-key="score">得分</button>
+        <button onclick="sortPanel('left','chg_desc')" data-key="chg_desc">涨幅↓</button>
+        <button onclick="sortPanel('left','chg_asc')" data-key="chg_asc">涨幅↑</button>
+        <button onclick="sortPanel('left','vol')" data-key="vol">成交额</button>
+      </div>
+    </div>
+    <div class="stock-list" id="leftList">
+      <div class="state-msg" id="leftMsg">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>
+        </svg>
+        <div>等待数据加载…</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 观望 Panel -->
+  <div class="panel">
+    <div class="panel-header">
+      <div class="panel-title">
+        <span class="badge other">观望</span>
+        方向不明（成交前30）
+      </div>
+      <span class="panel-count" id="otherCount">— 只</span>
+      <div class="sort-btns" id="otherSortBtns">
+        <button onclick="sortPanel('other','vol')" class="active" data-key="vol">成交额</button>
+        <button onclick="sortPanel('other','chg_desc')" data-key="chg_desc">涨幅↓</button>
+        <button onclick="sortPanel('other','chg_asc')" data-key="chg_asc">涨幅↑</button>
+      </div>
+    </div>
+    <div class="stock-list" id="otherList">
+      <div class="state-msg" id="otherMsg">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>
+        </svg>
+        <div>等待数据加载…</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</div>
+
+<!-- Toast -->
+<div id="toast" class="toast"></div>
+
+<script>
+let currentMarket = 'a_share';
+let pollTimer = null;
+let statusTimer = null;
+let scanHistoryCache = {};   // market -> [{scan_time, label, stats, ...}]
+let stocksData = {right: [], left: [], other: []};
+
+// ── Market Tab ──────────────────────────────────────────────
+document.querySelectorAll('.mkt-tab').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.mkt-tab').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentMarket = btn.dataset.mkt;
+    clearAll();
+    document.getElementById('historySelect').value = '';
+    await loadScanHistory(currentMarket);
+    startPoll();
+  });
+});
+
+// ── Helpers ─────────────────────────────────────────────────
+function fmt(v, d=2){ return typeof v==='number' ? v.toFixed(d) : (v||'—') }
+function chgClass(v){ return v > 0 ? 'up' : v < 0 ? 'dn' : 'flat' }
+function chgStr(v){ return v > 0 ? '+'+fmt(v)+'%' : fmt(v)+'%' }
+function fmtAmt(yi){
+  if(yi >= 100) return (yi/100).toFixed(1)+'百亿';
+  return yi.toFixed(2)+'亿';
+}
+
+function strengthClass(s) {
+  if(!s) return 'watch';
+  if(s.includes('强烈买入')) return 'strong-buy';
+  if(s.includes('买入')) return 'buy';
+  if(s.includes('价值')) return 'value';
+  if(s.includes('强烈卖出')) return 'strong-sell';
+  if(s.includes('卖出')) return 'sell';
+  return 'watch';
+}
+
+// ── Render Stock Card ────────────────────────────────────────
+function renderCard(s) {
+  const cc = chgClass(s.change_pct);
+  const isHighVol = s.avg_amt_yi >= 1; // ≥ 1亿 推荐
+
+  const histRows = (s.history || []).map((h, i) => {
+    const hcc = chgClass(h.change_pct);
+    const isToday = i === (s.history.length - 1);
+    return `<tr class="${isToday?'today':''}">
+      <td>${h.date}</td>
+      <td>${fmt(h.open,3)}</td>
+      <td><b class="${hcc}">${fmt(h.close,3)}</b></td>
+      <td>${fmt(h.high,3)}</td>
+      <td>${fmt(h.low,3)}</td>
+      <td class="${hcc}">${chgStr(h.change_pct)}</td>
+      <td style="color:#8b949e">${fmtAmt(h.amount_yi)}</td>
+    </tr>`;
+  }).join('');
+
+  const signals = (s.signals||[]).map(sig =>
+    `<span class="signal-chip">${sig}</span>`
+  ).join('');
+
+  const scoreInfo = s.side === '右侧'
+    ? `右侧评分 <b>${s.right_score}</b>/6`
+    : s.side === '左侧'
+    ? `左侧评分 <b>${s.left_score}</b>/6`
+    : `右:${s.right_score} 左:${s.left_score}`;
+
+  const id = `card-${s.market.replace(/\W/g,'')}-${s.code}`;
+  const mktcapStr = s.market_cap_yi != null
+    ? (s.market_cap_yi >= 10000 ? (s.market_cap_yi/10000).toFixed(1)+'万亿' : s.market_cap_yi.toFixed(0)+'亿')
+    : '—';
+  const strengthTag = s.signal_strength
+    ? `<span class="strength-tag ${strengthClass(s.signal_strength)}">${s.signal_strength}</span>` : '';
+  const valueTagHtml = s.value_tag
+    ? `<span class="value-tag-badge">${s.value_tag}</span>` : '';
+
+  return `<div class="stock-card">
+  <div class="card-header" onclick="toggleCard('${id}')">
+    <span class="stock-code">${s.code}</span>
+    <span class="stock-name">${s.name}</span>
+    <span class="mktcap">${mktcapStr}</span>
+    <span class="stock-price ${cc}">${fmt(s.current_price,3)}</span>
+    <span class="stock-chg ${cc}">${chgStr(s.change_pct)}</span>
+    <span class="side-tag ${s.side}">${s.side}</span>
+    ${strengthTag}
+    <svg class="expand-icon" id="icon-${id}" width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+      <path d="M1.646 4.646a.5.5 0 0 1 .708 0L8 10.293l5.646-5.647a.5.5 0 0 1 .708.708l-6 6a.5.5 0 0 1-.708 0l-6-6a.5.5 0 0 1 0-.708z"/>
+    </svg>
+  </div>
+  <div class="card-body" id="${id}">
+    <div class="card-signals">${signals}${valueTagHtml}</div>
+    <div class="card-stats">
+      <span>MA5:<b>${fmt(s.ma5,3)}</b></span>
+      <span>MA10:<b>${fmt(s.ma10,3)}</b></span>
+      <span>MA20:<b>${fmt(s.ma20,3)}</b></span>
+      <span>RSI(14):<b>${fmt(s.rsi14,1)}</b></span>
+      <span>30日位置:<b>${s.price_position}%</b></span>
+      <span>${scoreInfo}</span>
+    </div>
+    <div class="volume-bar">
+      <span class="vol-label">30日均成交额：</span>
+      <span class="vol-indicator ${isHighVol?'':'vol-warn'}">${fmtAmt(s.avg_amt_yi)} ${isHighVol?'✓ 充裕':'⚠ 偏低'}</span>
+    </div>
+    <table class="price-table">
+      <thead><tr>
+        <th>日期</th><th>开盘</th><th>收盘</th><th>最高</th><th>最低</th><th>涨跌幅</th><th>成交额</th>
+      </tr></thead>
+      <tbody>${histRows}</tbody>
+    </table>
+  </div>
+</div>`;
+}
+
+function toggleCard(id) {
+  const body = document.getElementById(id);
+  const icon = document.getElementById('icon-'+id);
+  if(!body) return;
+  const open = body.classList.toggle('open');
+  if(icon) icon.style.transform = open ? 'rotate(180deg)' : '';
+}
+
+// ── Render Lists ─────────────────────────────────────────────
+function renderList(listId, msgId, countId, stocks, emptyText) {
+  const list = document.getElementById(listId);
+  const msg  = document.getElementById(msgId);
+  const cnt  = document.getElementById(countId);
+  if (!list) return;
+
+  cnt.textContent = stocks.length + ' 只';
+
+  if (stocks.length === 0) {
+    msg.style.display = 'flex';
+    msg.innerHTML = `<svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+      <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+    </svg><div>${emptyText}</div>`;
+    // Remove old cards
+    [...list.children].forEach(c => { if(c !== msg) c.remove(); });
+    return;
+  }
+
+  msg.style.display = 'none';
+  [...list.children].forEach(c => { if(c !== msg) c.remove(); });
+
+  const frag = document.createDocumentFragment();
+  stocks.forEach(s => {
+    const div = document.createElement('div');
+    div.innerHTML = renderCard(s);
+    frag.appendChild(div.firstChild);
+  });
+  list.appendChild(frag);
+}
+
+// ── Status Update ────────────────────────────────────────────
+function setStatus(state, text, lastUpdate) {
+  const dot  = document.getElementById('statusDot');
+  const txt  = document.getElementById('statusText');
+  const upd  = document.getElementById('lastUpdate');
+  dot.className = 'dot ' + (state==='ready'?'green':state==='loading'?'yellow':'red');
+  txt.textContent = text;
+  upd.textContent = lastUpdate ? '更新于 '+lastUpdate : '';
+}
+
+function clearAll() {
+  ['rightList','leftList','otherList'].forEach(id => {
+    const el = document.getElementById(id);
+    if(!el) return;
+    [...el.children].forEach(c => {
+      if(!c.id.endsWith('Msg')) c.remove();
+    });
+  });
+  ['rightMsg','leftMsg','otherMsg'].forEach(id => {
+    const el = document.getElementById(id);
+    if(el) {
+      el.style.display = 'flex';
+      el.innerHTML = `<svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>
+      </svg><div>等待数据加载…</div>
+      <div class="progress-bar"><div class="progress-fill" style="width:0%"></div></div>
+      <div class="progress-text"></div>`;
+    }
+  });
+  document.getElementById('statsBar').style.display = 'none';
+  document.getElementById('rightCount').textContent = '— 只';
+  document.getElementById('leftCount').textContent  = '— 只';
+  document.getElementById('otherCount').textContent = '— 只';
+}
+
+// ── Polling ──────────────────────────────────────────────────
+async function poll() {
+  try {
+    // 1. Check status
+    const statusResp = await fetch('/api/status');
+    const status = await statusResp.json();
+    const mkt = status[currentMarket];
+
+    if (mkt.status === 'loading') {
+      setStatus('loading', '数据加载中…');
+      // Update progress bars
+      const prog = mkt.progress;
+      if (prog && prog.total > 0) {
+        const pct = Math.round(prog.done / prog.total * 100);
+        const bar  = document.querySelector('#rightMsg .progress-fill');
+        const text = document.querySelector('#rightMsg .progress-text');
+        if (bar)  bar.style.width = pct + '%';
+        if (text) text.textContent = `已处理 ${prog.done} / ${prog.total}`;
+      }
+      return; // keep polling
+    }
+
+    if (mkt.status === 'ready') {
+      // 2. Fetch stocks
+      const resp  = await fetch(`/api/stocks?market=${currentMarket}&side=all`);
+      const data  = await resp.json();
+      if (data.status !== 'ready' || !data.stocks) return;
+
+      const right = data.stocks.filter(s => s.side === '右侧');
+      const left  = data.stocks.filter(s => s.side === '左侧');
+      const other = data.stocks.filter(s => s.side === '观望');
+
+      // Store globally for re-sorting
+      stocksData = {right, left, other};
+
+      const closeTime = mkt.close_time;
+      const label = closeTime ? `收盘 ${closeTime}` : mkt.last_update;
+      setStatus('ready', '数据就绪', label);
+      await loadScanHistory(currentMarket);
+
+      // Update stats bar
+      const sb = document.getElementById('statsBar');
+      sb.style.display = 'flex';
+      document.getElementById('statTotal').textContent = data.stats.total;
+      document.getElementById('statRight').textContent = data.stats.right_count;
+      document.getElementById('statLeft').textContent  = data.stats.left_count;
+      document.getElementById('statOther').textContent = data.stats.other_count;
+
+      renderList('rightList','rightMsg','rightCount', right, '暂无右侧信号股票');
+      renderList('leftList', 'leftMsg', 'leftCount',  left,  '暂无左侧信号股票');
+      renderList('otherList','otherMsg','otherCount',  other, '暂无观望股票');
+
+      // Stop polling once data is loaded
+      clearInterval(pollTimer);
+      pollTimer = null;
+      return;
+    }
+
+    if (mkt.status === 'error') {
+      setStatus('red', '加载失败，请手动刷新');
+      clearInterval(pollTimer);
+      pollTimer = null;
+    }
+
+  } catch(e) {
+    console.warn('poll error:', e);
+  }
+}
+
+function startPoll() {
+  if (pollTimer) clearInterval(pollTimer);
+  poll();
+  pollTimer = setInterval(poll, 3000);
+}
+
+// ── Full Scan ─────────────────────────────────────────────────
+let fullScanTimer = null;
+
+async function triggerFullScan() {
+  const btn = document.getElementById('btnFullScan');
+  btn.disabled = true;
+
+  try {
+    const resp = await fetch('/api/full_scan', {method: 'POST'});
+    const data = await resp.json();
+    if (data.status === 'already_running') {
+      showScanOverlay();
+      pollFullScan();
+      return;
+    }
+    showScanOverlay();
+    pollFullScan();
+  } catch(e) {
+    alert('全量扫描请求失败: ' + e);
+    btn.disabled = false;
+  }
+}
+
+function showScanOverlay() {
+  document.getElementById('scanOverlay').classList.add('active');
+}
+
+function hideScanOverlay() {
+  document.getElementById('scanOverlay').classList.remove('active');
+  document.getElementById('btnFullScan').disabled = false;
+}
+
+function pollFullScan() {
+  if (fullScanTimer) clearInterval(fullScanTimer);
+  fullScanTimer = setInterval(async () => {
+    try {
+      const resp = await fetch('/api/status');
+      const data = await resp.json();
+      const fs   = data.full_scan;
+
+      const fill = document.getElementById('scanProgFill');
+      const text = document.getElementById('scanProgText');
+      const last = document.getElementById('scanLast');
+
+      if (fs.progress && fs.progress.total > 0) {
+        const pct = Math.round(fs.progress.done / fs.progress.total * 100);
+        fill.style.width = pct + '%';
+        text.textContent = `已处理 ${fs.progress.done} / ${fs.progress.total} 只（${pct}%）`;
+      }
+
+      if (!fs.running) {
+        clearInterval(fullScanTimer);
+        fullScanTimer = null;
+        if (fs.last_run) {
+          fill.style.width = '100%';
+          text.textContent = `扫描完成！共 ${fs.last_count} 只符合条件`;
+          last.style.display = 'block';
+          last.textContent   = `完成时间: ${fs.last_run}`;
+          setTimeout(() => {
+            hideScanOverlay();
+            clearAll();
+            startPoll();
+          }, 2000);
+        } else {
+          hideScanOverlay();
+        }
+      }
+    } catch(e) {
+      console.warn('fullScan poll error:', e);
+    }
+  }, 3000);
+}
+
+// ── Toast ────────────────────────────────────────────────────
+function showToast(msg, warn=false) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show' + (warn ? ' warn' : '');
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => t.classList.remove('show'), 3500);
+}
+
+// ── Scan History ─────────────────────────────────────────────
+async function loadScanHistory(market) {
+  try {
+    const resp = await fetch(`/api/scan_history?market=${market}`);
+    const list = await resp.json();
+    scanHistoryCache[market] = list;
+    const sel = document.getElementById('historySelect');
+    sel.innerHTML = '<option value="">── 历史快照 ──</option>';
+    list.forEach(h => {
+      const opt = document.createElement('option');
+      opt.value = h.scan_time;
+      const isClosed = h.is_close_data;
+      opt.textContent = (isClosed ? '📌 ' : '○ ') + h.label +
+        ` （右${h.stats.right_count}/左${h.stats.left_count}）`;
+      sel.appendChild(opt);
+    });
+    sel.style.display = list.length > 0 ? '' : 'none';
+  } catch(e) { console.warn('loadScanHistory error:', e); }
+}
+
+async function loadSnapshot(scan_time) {
+  if (!scan_time) return;
+  try {
+    const resp = await fetch(`/api/stocks_snapshot?market=${currentMarket}&scan_time=${encodeURIComponent(scan_time)}`);
+    const data = await resp.json();
+    if (data.error) return;
+    const right = data.stocks.filter(s => s.side === '右侧');
+    const left  = data.stocks.filter(s => s.side === '左侧');
+    const other = data.stocks.filter(s => s.side === '观望');
+    const label = data.close_time ? `收盘数据 ${data.close_time}` : data.last_update;
+    setStatus('ready', `历史快照`, label);
+    document.getElementById('statsBar').style.display = 'flex';
+    document.getElementById('statTotal').textContent = data.stats.total;
+    document.getElementById('statRight').textContent = data.stats.right_count;
+    document.getElementById('statLeft').textContent  = data.stats.left_count;
+    document.getElementById('statOther').textContent = data.stats.other_count;
+    renderList('rightList','rightMsg','rightCount', right, '暂无右侧信号股票');
+    renderList('leftList', 'leftMsg', 'leftCount',  left,  '暂无左侧信号股票');
+    renderList('otherList','otherMsg','otherCount',  other, '暂无观望股票');
+  } catch(e) { console.warn('loadSnapshot error:', e); }
+}
+
+// ── Scan (replaces Refresh) ───────────────────────────────────
+async function triggerScan() {
+  const btn = document.getElementById('btnRefresh');
+  btn.disabled = true;
+  btn.classList.add('spinning');
+
+  try {
+    const resp = await fetch('/api/scan', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({market: currentMarket})
+    });
+    const data = await resp.json();
+
+    if (data.status === 'already_latest') {
+      showToast('✅ ' + data.message);
+      btn.disabled = false;
+      btn.classList.remove('spinning');
+      return;
+    }
+    if (data.status === 'already_loading') {
+      showToast('⏳ 正在扫描中，请稍候', true);
+      btn.disabled = false;
+      btn.classList.remove('spinning');
+      startPoll();
+      return;
+    }
+
+    setStatus('loading', '扫描中…');
+    clearAll();
+    // Reset history dropdown
+    document.getElementById('historySelect').value = '';
+    startPoll();
+  } catch(e) {
+    setStatus('red', '请求失败');
+  } finally {
+    setTimeout(() => {
+      btn.disabled = false;
+      btn.classList.remove('spinning');
+    }, 3000);
+  }
+}
+
+// ── Sort Panel ────────────────────────────────────────────────
+function sortPanel(panel, key) {
+  const listId   = panel + 'List';
+  const msgId    = panel + 'Msg';
+  const countId  = panel + 'Count';
+  const btnsId   = panel + 'SortBtns';
+  const stocks   = [...(stocksData[panel] || [])];
+
+  // Update active button state
+  const btns = document.querySelectorAll(`#${btnsId} button`);
+  btns.forEach(b => b.classList.toggle('active', b.dataset.key === key));
+
+  switch(key) {
+    case 'score':
+      if(panel === 'right') stocks.sort((a,b) => b.right_score - a.right_score);
+      else if(panel === 'left') stocks.sort((a,b) => b.left_score - a.left_score);
+      else stocks.sort((a,b) => b.avg_amt_yi - a.avg_amt_yi);
+      break;
+    case 'chg_desc':
+      stocks.sort((a,b) => b.change_pct - a.change_pct);
+      break;
+    case 'chg_asc':
+      stocks.sort((a,b) => a.change_pct - b.change_pct);
+      break;
+    case 'vol':
+      stocks.sort((a,b) => b.avg_amt_yi - a.avg_amt_yi);
+      break;
+  }
+
+  const emptyMap = {right: '暂无右侧信号股票', left: '暂无左侧信号股票', other: '暂无观望股票'};
+  renderList(listId, msgId, countId, stocks, emptyMap[panel] || '暂无数据');
+}
+
+// ── Auto Refresh Timer (next close) ─────────────────────────
+function nextCloseCountdown() {
+  const now = new Date();
+  const tz = 8; // CST offset
+  const h = now.getUTCHours() + tz;
+  const closes = currentMarket === 'a_share'
+    ? [{h:11,m:35},{h:15,m:5}]
+    : [{h:12,m:5}, {h:16,m:5}];
+
+  const [hh, mm] = [now.getHours(), now.getMinutes()];
+  let next = null;
+  for (const c of closes) {
+    if (hh < c.h || (hh === c.h && mm < c.m)) {
+      next = c; break;
+    }
+  }
+  if (!next) return; // after last close
+  const secsLeft = (next.h - hh) * 3600 + (next.m - mm) * 60 - now.getSeconds();
+  const hLeft = Math.floor(secsLeft / 3600);
+  const mLeft = Math.floor((secsLeft % 3600) / 60);
+  const sLeft = secsLeft % 60;
+  const upd = document.getElementById('lastUpdate');
+  if(upd && !document.getElementById('statusDot').classList.contains('green')) return;
+  // overlay countdown next to last update
+}
+
+// ── Init ─────────────────────────────────────────────────────
+window.addEventListener('DOMContentLoaded', async () => {
+  await loadScanHistory(currentMarket);
+  startPoll();
+  // 如果启动时全量扫描已在后台运行，自动恢复显示进度
+  try {
+    const resp = await fetch('/api/status');
+    const data = await resp.json();
+    if (data.full_scan && data.full_scan.running) {
+      showScanOverlay();
+      pollFullScan();
+    }
+  } catch(e) {}
+});
+</script>
+</body>
+</html>

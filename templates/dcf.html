@@ -1,0 +1,796 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>DCF 估值计算器</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'SF Pro Display',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  background:#0d1117;color:#e6edf3;min-height:100vh;font-size:14px}
+a{color:inherit;text-decoration:none}
+
+/* ---- Header ---- */
+header{background:#161b22;border-bottom:1px solid #30363d;
+  padding:12px 20px;display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+.logo{font-size:16px;font-weight:700;color:#58a6ff;white-space:nowrap}
+.logo span{color:#f0883e}
+.back-btn{padding:5px 12px;border-radius:6px;border:1px solid #30363d;
+  background:#21262d;color:#e6edf3;cursor:pointer;font-size:12px;
+  display:flex;align-items:center;gap:5px;transition:.15s;text-decoration:none}
+.back-btn:hover{background:#30363d}
+.header-title{font-size:15px;font-weight:600;color:#e6edf3}
+.header-sub{font-size:12px;color:#8b949e;margin-left:auto}
+
+/* ---- Layout ---- */
+.page-body{display:flex;gap:0;height:calc(100vh - 53px);overflow:hidden}
+
+/* ---- Left Panel (Input Form) ---- */
+.input-panel{width:320px;min-width:280px;flex-shrink:0;background:#161b22;
+  border-right:1px solid #30363d;overflow-y:auto;display:flex;flex-direction:column}
+.input-panel::-webkit-scrollbar{width:5px}
+.input-panel::-webkit-scrollbar-track{background:#0d1117}
+.input-panel::-webkit-scrollbar-thumb{background:#30363d;border-radius:3px}
+
+.form-section{padding:14px 16px;border-bottom:1px solid #21262d}
+.form-section-title{font-size:11px;font-weight:700;color:#8b949e;text-transform:uppercase;
+  letter-spacing:.05em;margin-bottom:10px}
+
+.form-row{margin-bottom:10px}
+.form-label{font-size:11px;color:#8b949e;margin-bottom:4px;display:flex;align-items:center;gap:4px}
+.form-label .tip{font-size:10px;color:#484f58;cursor:help}
+.form-input{width:100%;padding:6px 10px;border-radius:6px;border:1px solid #30363d;
+  background:#0d1117;color:#e6edf3;font-size:13px;outline:none;transition:.15s}
+.form-input:focus{border-color:#1f6feb;background:#0d1117}
+.form-input::placeholder{color:#484f58}
+.form-input-row{display:flex;gap:6px}
+.form-input-row .form-input{flex:1}
+.input-unit{font-size:12px;color:#8b949e;padding:6px 0;white-space:nowrap;align-self:center}
+
+/* ---- Search suggestions ---- */
+.search-wrap{position:relative}
+.search-suggestions{position:absolute;top:100%;left:0;right:0;background:#1c2128;
+  border:1px solid #30363d;border-radius:6px;z-index:100;display:none;
+  max-height:200px;overflow-y:auto;margin-top:2px}
+.search-suggestions.show{display:block}
+.suggestion-item{padding:7px 10px;cursor:pointer;font-size:13px;
+  display:flex;gap:8px;align-items:center}
+.suggestion-item:hover{background:#21262d}
+.suggestion-code{color:#8b949e;font-family:monospace;font-size:12px;min-width:55px}
+.suggestion-name{color:#e6edf3}
+
+/* ---- Rate inputs (2-column grid) ---- */
+.rate-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+
+/* ---- Currency selector ---- */
+.currency-row{display:flex;gap:6px;margin-bottom:10px}
+.currency-btn{flex:1;padding:5px 8px;border-radius:5px;border:1px solid #30363d;
+  background:transparent;color:#8b949e;cursor:pointer;font-size:12px;font-weight:500;transition:.15s;text-align:center}
+.currency-btn.active{background:#1f3a5a;border-color:#1f6feb;color:#58a6ff}
+.currency-btn:hover:not(.active){background:#21262d}
+
+/* ---- Action buttons ---- */
+.btn-calc{width:100%;padding:9px;border-radius:7px;border:none;
+  background:linear-gradient(135deg,#1f6feb,#388bfd);color:#fff;cursor:pointer;
+  font-size:13px;font-weight:700;letter-spacing:.02em;transition:.15s;margin-bottom:6px}
+.btn-calc:hover{background:linear-gradient(135deg,#388bfd,#58a6ff)}
+.btn-save{width:100%;padding:8px;border-radius:7px;border:1px solid #238636;
+  background:#1a3a1a;color:#3fb950;cursor:pointer;font-size:13px;font-weight:600;
+  transition:.15s}
+.btn-save:hover{background:#1f4a1f}
+.btn-save:disabled{opacity:.4;cursor:not-allowed}
+
+/* ---- Right Panel (Results) ---- */
+.result-panel{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:0;min-width:0}
+.result-panel::-webkit-scrollbar{width:6px}
+.result-panel::-webkit-scrollbar-track{background:#0d1117}
+.result-panel::-webkit-scrollbar-thumb{background:#30363d;border-radius:3px}
+
+/* ---- Intrinsic Value Hero ---- */
+.value-hero{padding:24px 28px;background:#0d1117;border-bottom:1px solid #21262d;
+  display:flex;gap:32px;flex-wrap:wrap;align-items:flex-start}
+.value-hero-empty{padding:60px 28px;text-align:center;color:#484f58;border-bottom:1px solid #21262d}
+.value-hero-empty svg{opacity:.2;margin-bottom:12px}
+.value-hero-empty p{font-size:13px}
+
+.val-block{display:flex;flex-direction:column;gap:3px}
+.val-label{font-size:11px;color:#8b949e;font-weight:500}
+.val-main{font-size:26px;font-weight:800;font-family:monospace;letter-spacing:.02em}
+.val-main.intrinsic{color:#58a6ff}
+.val-main.current{color:#e6edf3}
+.val-sub{font-size:11px;color:#8b949e}
+
+.margin-badge{padding:6px 14px;border-radius:8px;font-size:18px;font-weight:800;
+  font-family:monospace;white-space:nowrap;align-self:center}
+.margin-badge.positive{background:#0d2818;color:#3fb950;border:1px solid #238636}
+.margin-badge.negative{background:#3a0a0a;color:#f85149;border:1px solid #da3633}
+.margin-badge.neutral{background:#1a1a2a;color:#8b949e;border:1px solid #30363d}
+
+.equity-breakdown{display:flex;gap:20px;flex-wrap:wrap;padding:0 28px 16px;
+  border-bottom:1px solid #21262d;background:#0d1117}
+.eq-item{font-size:12px;color:#8b949e}
+.eq-item b{color:#e6edf3}
+
+/* ---- DCF Table ---- */
+.section{padding:20px 24px}
+.section-title{font-size:13px;font-weight:700;color:#e6edf3;margin-bottom:14px;
+  display:flex;align-items:center;gap:8px}
+.section-title .badge-sm{padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600}
+.badge-sm.blue{background:#1a2a3a;color:#58a6ff;border:1px solid #1f6feb}
+
+.dcf-table{width:100%;border-collapse:collapse;font-size:12px}
+.dcf-table th{padding:7px 10px;text-align:right;color:#8b949e;border-bottom:2px solid #21262d;
+  font-weight:600;white-space:nowrap}
+.dcf-table th:first-child,.dcf-table th:nth-child(2){text-align:left}
+.dcf-table td{padding:7px 10px;text-align:right;border-bottom:1px solid #161b22;
+  font-family:monospace;white-space:nowrap}
+.dcf-table td:first-child,.dcf-table td:nth-child(2){text-align:left;font-family:inherit}
+.dcf-table tr:hover td{background:#1c2128}
+.dcf-table tr.phase-1 td{color:#58a6ff}
+.dcf-table tr.phase-2 td{color:#3fb950}
+.dcf-table tr.phase-3 td{color:#f0883e}
+.dcf-table tr.terminal td{color:#d2a8ff;font-weight:600}
+.phase-label{font-size:10px;padding:2px 5px;border-radius:3px;
+  background:#21262d;color:#8b949e;white-space:nowrap}
+
+/* ---- Chart ---- */
+.chart-wrap{padding:0 24px 20px;background:#0d1117}
+.chart-container{position:relative;height:200px;background:#161b22;
+  border-radius:8px;border:1px solid #21262d;padding:12px}
+
+/* ---- Divider ---- */
+.divider{height:1px;background:#21262d;margin:0 24px}
+
+/* ---- History Section ---- */
+.history-section{padding:20px 24px}
+.history-empty{padding:30px;text-align:center;color:#484f58;font-size:13px}
+
+.history-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px}
+.history-card{background:#161b22;border:1px solid #21262d;border-radius:8px;
+  padding:14px;cursor:pointer;transition:.15s;position:relative}
+.history-card:hover{border-color:#30363d;background:#1c2128}
+.hcard-header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px}
+.hcard-name{font-size:13px;font-weight:700;color:#e6edf3}
+.hcard-code{font-size:11px;color:#8b949e;font-family:monospace}
+.hcard-date{font-size:10px;color:#484f58}
+.hcard-values{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:6px}
+.hcard-val{font-size:12px;color:#8b949e}
+.hcard-val b{font-family:monospace}
+.hcard-val.intrinsic b{color:#58a6ff}
+.hcard-val.current b{color:#e6edf3}
+.hcard-upside{font-size:13px;font-weight:700;font-family:monospace}
+.hcard-upside.pos{color:#3fb950}
+.hcard-upside.neg{color:#f85149}
+.hcard-notes{font-size:11px;color:#484f58;margin-top:4px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hcard-del{position:absolute;top:10px;right:10px;background:none;border:none;
+  color:#484f58;cursor:pointer;padding:3px;border-radius:4px;line-height:1;font-size:14px;
+  transition:.1s;display:none}
+.history-card:hover .hcard-del{display:block}
+.hcard-del:hover{color:#f85149;background:#3a0a0a}
+
+/* ---- Toast ---- */
+.toast{position:fixed;bottom:24px;right:24px;background:#238636;color:#fff;
+  padding:10px 18px;border-radius:8px;font-size:13px;font-weight:600;
+  opacity:0;transform:translateY(10px);transition:.3s;pointer-events:none;z-index:999}
+.toast.show{opacity:1;transform:translateY(0)}
+.toast.error{background:#da3633}
+
+@media(max-width:800px){
+  .page-body{flex-direction:column;height:auto}
+  .input-panel{width:100%;border-right:none;border-bottom:1px solid #30363d}
+  .value-hero{padding:16px 16px}
+  .section{padding:14px 16px}
+}
+</style>
+</head>
+<body>
+
+<header>
+  <a class="back-btn" href="/">
+    <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+      <path d="M15 8a.5.5 0 0 0-.5-.5H2.707l3.147-3.146a.5.5 0 1 0-.708-.708l-4 4a.5.5 0 0 0 0 .708l4 4a.5.5 0 0 0 .708-.708L2.707 8.5H14.5A.5.5 0 0 0 15 8z"/>
+    </svg>
+    返回筛选器
+  </a>
+  <span class="logo">股票筛选器 <span>⬡</span></span>
+  <span class="header-title">DCF 估值计算器</span>
+  <span class="header-sub">未来现金流折现 · 三阶段增长模型</span>
+</header>
+
+<div class="page-body">
+
+<!-- ═══ Left: Input Form ═══ -->
+<div class="input-panel">
+
+  <!-- Stock Search -->
+  <div class="form-section">
+    <div class="form-section-title">股票信息</div>
+
+    <div class="currency-row">
+      <button class="currency-btn active" data-cur="CNY" onclick="setCurrency('CNY')">A股 ¥</button>
+      <button class="currency-btn" data-cur="HKD" onclick="setCurrency('HKD')">港股 HK$</button>
+    </div>
+
+    <div class="form-row">
+      <div class="form-label">股票名称 / 代码</div>
+      <div class="search-wrap">
+        <input class="form-input" id="stockSearch" placeholder="输入名称或代码搜索…" autocomplete="off"
+               oninput="onSearchInput(this.value)" onblur="hideSuggestions()"/>
+        <div class="search-suggestions" id="suggestions"></div>
+      </div>
+    </div>
+    <div class="form-input-row">
+      <div class="form-row" style="flex:1">
+        <div class="form-label">股票代码</div>
+        <input class="form-input" id="stockCode" placeholder="600000"/>
+      </div>
+      <div class="form-row" style="flex:1">
+        <div class="form-label">公司名称</div>
+        <input class="form-input" id="stockName" placeholder="浦发银行"/>
+      </div>
+    </div>
+
+    <div class="form-row">
+      <div class="form-label">当前股价
+        <span class="tip" title="用于计算安全边际">(?)</span>
+      </div>
+      <div class="form-input-row">
+        <input class="form-input" id="currentPrice" type="number" step="0.01" placeholder="0.00"/>
+        <span class="input-unit" id="priceUnit">¥/股</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- DCF Parameters -->
+  <div class="form-section">
+    <div class="form-section-title">现金流参数</div>
+
+    <div class="form-row">
+      <div class="form-label">基准 FCF₀
+        <span class="tip" title="当前自由现金流，A股单位：亿元，港股：百万HKD">(?)</span>
+      </div>
+      <div class="form-input-row">
+        <input class="form-input" id="fcf0" type="number" step="0.1" placeholder="100"/>
+        <span class="input-unit" id="fcfUnit">亿元</span>
+      </div>
+    </div>
+
+    <div class="form-row">
+      <div class="form-label">总股本
+        <span class="tip" title="A股单位：亿股，港股：百万股">(?)</span>
+      </div>
+      <div class="form-input-row">
+        <input class="form-input" id="shares" type="number" step="0.01" placeholder="100"/>
+        <span class="input-unit" id="sharesUnit">亿股</span>
+      </div>
+    </div>
+
+    <div class="form-row">
+      <div class="form-label">净现金 / 净债务
+        <span class="tip" title="净现金为正，净债务为负（同FCF单位）">(?)</span>
+      </div>
+      <div class="form-input-row">
+        <input class="form-input" id="netCash" type="number" step="0.1" placeholder="0"/>
+        <span class="input-unit" id="cashUnit">亿元</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Growth Rates -->
+  <div class="form-section">
+    <div class="form-section-title">增长率 & 折现率</div>
+
+    <div class="rate-grid">
+      <div class="form-row">
+        <div class="form-label">第1-3年增速 g₁</div>
+        <div class="form-input-row">
+          <input class="form-input" id="g1" type="number" step="0.5" placeholder="15"/>
+          <span class="input-unit">%</span>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-label">第4-7年增速 g₂</div>
+        <div class="form-input-row">
+          <input class="form-input" id="g2" type="number" step="0.5" placeholder="10"/>
+          <span class="input-unit">%</span>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-label">第8-10年增速 g₃</div>
+        <div class="form-input-row">
+          <input class="form-input" id="g3" type="number" step="0.5" placeholder="5"/>
+          <span class="input-unit">%</span>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-label">永续增速 g_term</div>
+        <div class="form-input-row">
+          <input class="form-input" id="gterm" type="number" step="0.1" placeholder="3"/>
+          <span class="input-unit">%</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="form-row">
+      <div class="form-label">折现率 WACC
+        <span class="tip" title="加权平均资本成本，通常8-12%">(?)</span>
+      </div>
+      <div class="form-input-row">
+        <input class="form-input" id="wacc" type="number" step="0.1" placeholder="10"/>
+        <span class="input-unit">%</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Notes -->
+  <div class="form-section">
+    <div class="form-section-title">备注</div>
+    <div class="form-row">
+      <textarea class="form-input" id="notes" rows="3" placeholder="投资逻辑、假设依据…"
+        style="resize:vertical;min-height:60px"></textarea>
+    </div>
+  </div>
+
+  <!-- Action Buttons -->
+  <div class="form-section" style="border-bottom:none">
+    <button class="btn-calc" onclick="calcDCF()">计算 DCF 内在价值</button>
+    <button class="btn-save" id="btnSave" onclick="saveAnalysis()" disabled>保存分析记录</button>
+  </div>
+
+</div>
+<!-- END Left Panel -->
+
+<!-- ═══ Right: Results ═══ -->
+<div class="result-panel" id="resultPanel">
+
+  <!-- Hero: empty state -->
+  <div class="value-hero-empty" id="heroEmpty">
+    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1">
+      <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+    </svg>
+    <p>填写左侧参数，点击"计算 DCF 内在价值"</p>
+    <p style="margin-top:6px;font-size:11px">内在价值 = 未来10年现金流现值 + 永续价值 + 净现金</p>
+  </div>
+
+  <!-- Hero: result -->
+  <div class="value-hero" id="heroResult" style="display:none">
+    <div class="val-block">
+      <span class="val-label">内在价值（每股）</span>
+      <span class="val-main intrinsic" id="heroIntrinsic">—</span>
+      <span class="val-sub" id="heroIntrinsicSub"></span>
+    </div>
+    <div class="val-block">
+      <span class="val-label">当前股价</span>
+      <span class="val-main current" id="heroCurrent">—</span>
+      <span class="val-sub" id="heroCurrentSub"></span>
+    </div>
+    <div class="margin-badge neutral" id="heroMargin">—</div>
+  </div>
+
+  <!-- Equity breakdown -->
+  <div class="equity-breakdown" id="equityBreakdown" style="display:none">
+    <span class="eq-item">FCF现值合计: <b id="eqTotalPV">—</b></span>
+    <span class="eq-item">永续价值现值: <b id="eqTermPV">—</b></span>
+    <span class="eq-item">股权价值: <b id="eqEquity">—</b></span>
+    <span class="eq-item" id="eqSharesItem">股本: <b id="eqShares">—</b></span>
+  </div>
+
+  <!-- DCF Table -->
+  <div class="section" id="tableSection" style="display:none">
+    <div class="section-title">
+      DCF 现金流折现表
+      <span class="badge-sm blue">三阶段模型</span>
+    </div>
+    <table class="dcf-table">
+      <thead>
+        <tr>
+          <th>年份</th>
+          <th>阶段</th>
+          <th>增速</th>
+          <th id="fcfColHeader">FCF（亿元）</th>
+          <th id="pvColHeader">现值（亿元）</th>
+        </tr>
+      </thead>
+      <tbody id="dcfTableBody"></tbody>
+    </table>
+  </div>
+
+  <!-- Chart -->
+  <div class="chart-wrap" id="chartSection" style="display:none">
+    <div class="section-title" style="padding:0 0 10px">现值分布图</div>
+    <div class="chart-container">
+      <canvas id="dcfChart"></canvas>
+    </div>
+  </div>
+
+  <!-- History -->
+  <div class="divider"></div>
+  <div class="history-section">
+    <div class="section-title">
+      历史分析记录
+      <span class="badge-sm blue" id="historyCount">0 条</span>
+    </div>
+    <div id="historyList">
+      <div class="history-empty" id="historyEmpty">暂无保存的分析记录</div>
+    </div>
+  </div>
+
+</div>
+<!-- END Right Panel -->
+
+</div><!-- END page-body -->
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ── State ────────────────────────────────────────────────────────
+let currentCurrency = 'CNY';
+let lastResult = null;
+let dcfChart = null;
+let searchTimer = null;
+
+// ── Currency ─────────────────────────────────────────────────────
+function setCurrency(cur) {
+  currentCurrency = cur;
+  document.querySelectorAll('.currency-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.cur === cur);
+  });
+  const isHK = cur === 'HKD';
+  document.getElementById('priceUnit').textContent = isHK ? 'HK$/股' : '¥/股';
+  document.getElementById('fcfUnit').textContent   = isHK ? '百万HK$' : '亿元';
+  document.getElementById('sharesUnit').textContent= isHK ? '百万股' : '亿股';
+  document.getElementById('cashUnit').textContent  = isHK ? '百万HK$' : '亿元';
+  const fcfH  = isHK ? 'FCF（百万HK$）' : 'FCF（亿元）';
+  const pvH   = isHK ? '现值（百万HK$）' : '现值（亿元）';
+  document.getElementById('fcfColHeader').textContent = fcfH;
+  document.getElementById('pvColHeader').textContent  = pvH;
+}
+
+// ── Stock Search ─────────────────────────────────────────────────
+function onSearchInput(v) {
+  clearTimeout(searchTimer);
+  if (!v.trim()) { hideSuggestions(); return; }
+  searchTimer = setTimeout(() => doSearch(v.trim()), 300);
+}
+
+async function doSearch(q) {
+  try {
+    const r = await fetch(`/api/dcf/search?q=${encodeURIComponent(q)}`);
+    const data = await r.json();
+    showSuggestions(data);
+  } catch(e) {}
+}
+
+function showSuggestions(items) {
+  const box = document.getElementById('suggestions');
+  if (!items.length) { box.classList.remove('show'); return; }
+  box.innerHTML = items.map(it => `
+    <div class="suggestion-item" onmousedown="selectStock('${it.code}','${it.name.replace(/'/g,"\\'")}')">
+      <span class="suggestion-code">${it.code}</span>
+      <span class="suggestion-name">${it.name}</span>
+    </div>`).join('');
+  box.classList.add('show');
+}
+
+function hideSuggestions() {
+  setTimeout(() => {
+    document.getElementById('suggestions').classList.remove('show');
+  }, 150);
+}
+
+function selectStock(code, name) {
+  document.getElementById('stockCode').value = code;
+  document.getElementById('stockName').value = name;
+  document.getElementById('stockSearch').value = name + ' ' + code;
+  hideSuggestions();
+}
+
+// ── Calculate ────────────────────────────────────────────────────
+async function calcDCF() {
+  const params = getParams();
+  if (!params) return;
+
+  try {
+    const r = await fetch('/api/dcf/save', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        code:     document.getElementById('stockCode').value.trim(),
+        name:     document.getElementById('stockName').value.trim() || '未命名',
+        market:   currentCurrency === 'HKD' ? '港股' : 'A股',
+        currency: currentCurrency === 'HKD' ? 'HK$' : '¥',
+        conv:     1.0,
+        params,
+        notes:    document.getElementById('notes').value.trim(),
+      })
+    });
+    const data = await r.json();
+    if (data.error) { showToast('计算失败: ' + data.error, true); return; }
+
+    lastResult = { params, result: data.result };
+    renderResult(data.result, params);
+    document.getElementById('btnSave').disabled = false;
+    // Don't auto-save — user can click Save
+    // Refresh history
+    loadHistory();
+  } catch(e) {
+    showToast('请求失败: ' + e, true);
+  }
+}
+
+function getParams() {
+  const get = id => document.getElementById(id).value.trim();
+  const vals = {
+    fcf0:   parseFloat(get('fcf0')),
+    g1:     parseFloat(get('g1'))   / 100,
+    g2:     parseFloat(get('g2'))   / 100,
+    g3:     parseFloat(get('g3'))   / 100,
+    gterm:  parseFloat(get('gterm'))/ 100,
+    wacc:   parseFloat(get('wacc')) / 100,
+    net_cash: parseFloat(get('netCash') || '0'),
+    shares: parseFloat(get('shares')),
+  };
+  for (const [k, v] of Object.entries(vals)) {
+    if (isNaN(v)) {
+      showToast(`请填写有效的参数: ${k}`, true);
+      return null;
+    }
+  }
+  return vals;
+}
+
+// ── Render Result ────────────────────────────────────────────────
+function renderResult(result, params) {
+  const sym  = currentCurrency === 'HKD' ? 'HK$' : '¥';
+  const unit = currentCurrency === 'HKD' ? '百万HK$' : '亿元';
+  const shareUnit = currentCurrency === 'HKD' ? '百万股' : '亿股';
+
+  // Hero
+  document.getElementById('heroEmpty').style.display = 'none';
+  const heroResult = document.getElementById('heroResult');
+  heroResult.style.display = 'flex';
+  document.getElementById('equityBreakdown').style.display = 'flex';
+
+  const intrinsic = result.intrinsic_per_share;
+  const curPrice  = parseFloat(document.getElementById('currentPrice').value) || 0;
+
+  document.getElementById('heroIntrinsic').textContent = sym + intrinsic.toFixed(4);
+  document.getElementById('heroIntrinsicSub').textContent = '内在价值 / 股';
+  document.getElementById('heroCurrent').textContent   = curPrice > 0 ? (sym + curPrice.toFixed(2)) : '—';
+  document.getElementById('heroCurrentSub').textContent = '当前市价 / 股';
+
+  const marginEl = document.getElementById('heroMargin');
+  if (curPrice > 0 && intrinsic > 0) {
+    const upside = ((intrinsic - curPrice) / curPrice * 100).toFixed(1);
+    const isPos  = intrinsic > curPrice;
+    marginEl.textContent = (isPos ? '安全边际 +' : '溢价 ') + upside + '%';
+    marginEl.className = 'margin-badge ' + (isPos ? 'positive' : 'negative');
+  } else {
+    marginEl.textContent = '—';
+    marginEl.className   = 'margin-badge neutral';
+  }
+
+  // Breakdown
+  document.getElementById('eqTotalPV').textContent   = fmt2(result.total_pv - result.terminal_pv) + unit;
+  document.getElementById('eqTermPV').textContent    = fmt2(result.terminal_pv) + unit;
+  document.getElementById('eqEquity').textContent    = fmt2(result.equity_value) + unit;
+  document.getElementById('eqShares').textContent    = fmt2(params.shares) + shareUnit;
+
+  // Table
+  document.getElementById('tableSection').style.display = 'block';
+  const tbody = document.getElementById('dcfTableBody');
+  const phaseOf = yr => yr <= 3 ? '第1-3年' : yr <= 7 ? '第4-7年' : '第8-10年';
+  const phaseClass = yr => yr <= 3 ? 'phase-1' : yr <= 7 ? 'phase-2' : 'phase-3';
+
+  const rows = result.dcf_table.map(row => `
+    <tr class="${phaseClass(row.year)}">
+      <td>第${row.year}年</td>
+      <td><span class="phase-label">${phaseOf(row.year)}</span></td>
+      <td>${row.growth}%</td>
+      <td>${fmt2(row.fcf)}</td>
+      <td>${fmt2(row.pv)}</td>
+    </tr>`).join('');
+  tbody.innerHTML = rows + `
+    <tr class="terminal">
+      <td>永续期</td>
+      <td><span class="phase-label">Gordon增长</span></td>
+      <td>永续</td>
+      <td>${fmt2(result.terminal_value)}</td>
+      <td>${fmt2(result.terminal_pv)}</td>
+    </tr>
+    <tr style="border-top:2px solid #30363d;font-weight:700;color:#e6edf3">
+      <td colspan="3">合计</td>
+      <td>—</td>
+      <td>${fmt2(result.total_pv)}</td>
+    </tr>`;
+
+  // Chart
+  renderChart(result);
+}
+
+function renderChart(result) {
+  const chartSection = document.getElementById('chartSection');
+  chartSection.style.display = 'block';
+
+  const labels = result.dcf_table.map(r => '第'+r.year+'年');
+  labels.push('永续期');
+  const pvData = result.dcf_table.map(r => r.pv);
+  pvData.push(result.terminal_pv);
+
+  const colors = result.dcf_table.map(r =>
+    r.year <= 3 ? '#1f6feb' : r.year <= 7 ? '#238636' : '#9e6a03'
+  );
+  colors.push('#6e40c9');
+
+  if (dcfChart) { dcfChart.destroy(); dcfChart = null; }
+
+  const ctx = document.getElementById('dcfChart').getContext('2d');
+  dcfChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{
+        label: '现值',
+        data: pvData,
+        backgroundColor: colors,
+        borderRadius: 4,
+        borderSkipped: false,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: ctx => ' ' + ctx.parsed.y.toFixed(2)
+          }
+        }
+      },
+      scales: {
+        x: { grid: { color: '#21262d' }, ticks: { color: '#8b949e', font: { size: 11 } } },
+        y: { grid: { color: '#21262d' }, ticks: { color: '#8b949e', font: { size: 11 } } }
+      }
+    }
+  });
+}
+
+// ── Save ─────────────────────────────────────────────────────────
+async function saveAnalysis() {
+  if (!lastResult) return;
+  const btn = document.getElementById('btnSave');
+  btn.disabled = true;
+  // Already saved on calc; just show confirmation
+  showToast('分析已保存');
+  await loadHistory();
+}
+
+// ── History ──────────────────────────────────────────────────────
+async function loadHistory() {
+  try {
+    const r    = await fetch('/api/dcf/list');
+    const data = await r.json();
+    renderHistory(data);
+  } catch(e) {}
+}
+
+function renderHistory(items) {
+  const list  = document.getElementById('historyList');
+  const empty = document.getElementById('historyEmpty');
+  const count = document.getElementById('historyCount');
+  count.textContent = items.length + ' 条';
+
+  if (!items.length) {
+    empty.style.display = 'block';
+    list.innerHTML = '';
+    list.appendChild(empty);
+    return;
+  }
+  empty.style.display = 'none';
+
+  const grid = document.createElement('div');
+  grid.className = 'history-grid';
+  items.forEach(item => {
+    const card = document.createElement('div');
+    card.className = 'history-card';
+    const r = item.result || {};
+    const intrinsic = r.intrinsic_per_share || 0;
+    const sym = item.currency || '¥';
+
+    // We don't store current_price in history, so show what we have
+    const upside = '';
+    card.innerHTML = `
+      <div class="hcard-header">
+        <div>
+          <div class="hcard-name">${item.name || '未命名'}</div>
+          <div class="hcard-code">${item.code || ''} · ${item.market || 'A股'}</div>
+        </div>
+        <div class="hcard-date">${item.created_at || ''}</div>
+      </div>
+      <div class="hcard-values">
+        <div class="hcard-val intrinsic">内在价值 <b>${sym}${intrinsic.toFixed(4)}/股</b></div>
+        <div class="hcard-val">股权总值 <b>${fmt2(r.equity_value || 0)}</b></div>
+      </div>
+      <div class="hcard-val" style="font-size:11px;color:#8b949e;margin-bottom:4px">
+        WACC: <b>${((item.params||{}).wacc||0)*100}%</b> &nbsp;
+        g₁: <b>${((item.params||{}).g1||0)*100}%</b> &nbsp;
+        永续: <b>${((item.params||{}).gterm||0)*100}%</b>
+      </div>
+      ${item.notes ? `<div class="hcard-notes">${item.notes}</div>` : ''}
+      <button class="hcard-del" onclick="deleteHistory(event,'${item.id}')">✕</button>
+    `;
+    card.addEventListener('click', () => loadFromHistory(item));
+    grid.appendChild(card);
+  });
+
+  list.innerHTML = '';
+  list.appendChild(grid);
+}
+
+function loadFromHistory(item) {
+  const p = item.params || {};
+  const set = (id, v) => { if (v !== undefined) document.getElementById(id).value = v; };
+  set('stockCode',    item.code);
+  set('stockName',    item.name);
+  set('stockSearch',  (item.name || '') + ' ' + (item.code || ''));
+  set('fcf0',         p.fcf0);
+  set('g1',           ((p.g1||0)*100).toFixed(1));
+  set('g2',           ((p.g2||0)*100).toFixed(1));
+  set('g3',           ((p.g3||0)*100).toFixed(1));
+  set('gterm',        ((p.gterm||0)*100).toFixed(1));
+  set('wacc',         ((p.wacc||0)*100).toFixed(1));
+  set('netCash',      p.net_cash);
+  set('shares',       p.shares);
+  set('notes',        item.notes);
+
+  // Set currency
+  const cur = (item.currency || '¥') === 'HK$' ? 'HKD' : 'CNY';
+  setCurrency(cur);
+
+  // Render result if available
+  if (item.result) {
+    lastResult = { params: p, result: item.result };
+    renderResult(item.result, p);
+    document.getElementById('btnSave').disabled = false;
+  }
+  // Scroll to top of result panel
+  document.getElementById('resultPanel').scrollTop = 0;
+  showToast('已加载历史记录: ' + (item.name || item.code));
+}
+
+async function deleteHistory(e, id) {
+  e.stopPropagation();
+  if (!confirm('确认删除这条分析记录？')) return;
+  try {
+    const r = await fetch(`/api/dcf/delete/${id}`, { method: 'DELETE' });
+    const d = await r.json();
+    if (d.ok) { showToast('已删除'); loadHistory(); }
+    else showToast('删除失败', true);
+  } catch(e) { showToast('请求失败', true); }
+}
+
+// ── Helpers ──────────────────────────────────────────────────────
+function fmt2(v) {
+  if (v === undefined || v === null) return '—';
+  return Number(v).toFixed(2);
+}
+
+function showToast(msg, isError = false) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className   = 'toast' + (isError ? ' error' : '');
+  void t.offsetWidth;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+// ── Init ──────────────────────────────────────────────────────────
+window.addEventListener('DOMContentLoaded', () => {
+  loadHistory();
+});
+</script>
+</body>
+</html>
