@@ -526,11 +526,39 @@ def get_a_share_stocks(progress_cb=None, full_scan=False) -> list[dict]:
 #  港股：沪港通成分股
 # ════════════════════════════════════════════════════════════════
 
-def _get_hk_connect_codes() -> list[tuple[str, str]]:
+def _get_hk_connect_spot() -> tuple[list[tuple[str, str]], dict]:
     """
-    返回 [(代码, 名称), ...] 的沪港通成分股列表
-    尝试多个 akshare 接口
+    返回 ([(代码, 名称), ...], {代码: spot_dict}) 的沪港通成分股列表
+    spot_dict 包含当日实时行情字段
     """
+    # 1. akshare stock_hk_ggt_components_em（首选，含实时行情）
+    try:
+        df = ak.stock_hk_ggt_components_em()
+        if df is not None and not df.empty:
+            codes = df['代码'].astype(str).str.zfill(5).tolist()
+            names = df['名称'].astype(str).tolist()
+            pairs = list(zip(codes, names))
+            # Build spot map: {code: {price, change_pct, amount_yi, ...}}
+            spot_map = {}
+            for _, row in df.iterrows():
+                code = str(row['代码']).zfill(5)
+                try:
+                    price  = float(row['最新价'])
+                    chg    = float(row['涨跌幅'])
+                    amt    = float(row['成交额']) / 1e8  # → 亿HKD
+                    spot_map[code] = {
+                        'current_price': price,
+                        'change_pct':    round(chg, 2),
+                        'today_amt_yi':  round(amt, 2),
+                    }
+                except Exception:
+                    pass
+            logger.info(f"[港股通] stock_hk_ggt_components_em 成功，共 {len(pairs)} 只")
+            return pairs, spot_map
+    except Exception as e:
+        logger.warning(f"[港股通] stock_hk_ggt_components_em 失败: {e}")
+
+    # 2. 尝试旧版函数名（兼容不同akshare版本）
     for fn_name in ('stock_hk_ggt_components_df', 'stock_em_hk_ggt_components',
                     'stock_hk_ggt_component'):
         try:
@@ -546,28 +574,35 @@ def _get_hk_connect_codes() -> list[tuple[str, str]]:
                 codes = df[code_col].astype(str).str.zfill(5).tolist()
                 names = df[name_col].astype(str).tolist() if name_col else codes
                 logger.info(f"[港股通] {fn_name} 成功，共 {len(codes)} 只")
-                return list(zip(codes, names))
+                return list(zip(codes, names)), {}
         except Exception as e:
             logger.debug(f"港股通接口 {fn_name} 失败: {e}")
 
-    # 回退：用 Tushare 获取港股通列表
+    # 3. 回退：Tushare hk_hold
     if _ts_pro is not None:
         try:
             for td_offset in range(5):
                 td = (datetime.now() - timedelta(days=td_offset)).strftime('%Y%m%d')
-                df = _ts_pro.hk_hold(trade_date=td, exchange='SH')
-                if df is not None and not df.empty:
-                    pairs = list(zip(
-                        df['code'].astype(str).str.zfill(5),
-                        df['name'].astype(str)
-                    ))
-                    logger.info(f"[港股通] Tushare hk_hold {td}，共 {len(pairs)} 只")
-                    return pairs
+                for exchange in ('SH', 'SZ'):
+                    df = _ts_pro.hk_hold(trade_date=td, exchange=exchange)
+                    if df is not None and not df.empty:
+                        pairs = list(zip(
+                            df['code'].astype(str).str.zfill(5),
+                            df['name'].astype(str)
+                        ))
+                        logger.info(f"[港股通] Tushare hk_hold {td}/{exchange}，共 {len(pairs)} 只")
+                        return pairs, {}
         except Exception as e:
             logger.debug(f"Tushare hk_hold 失败: {e}")
 
     logger.warning("港股通成分股获取失败，港股将无数据")
-    return []
+    return [], {}
+
+
+def _get_hk_connect_codes() -> list[tuple[str, str]]:
+    """兼容旧调用，仅返回 [(代码, 名称)]"""
+    pairs, _ = _get_hk_connect_spot()
+    return pairs
 
 
 def _hk_to_ts(symbol: str) -> str:
@@ -628,7 +663,7 @@ def _fetch_hk_hist(symbol: str) -> pd.DataFrame | None:
     return None
 
 
-def _process_hk_stock(code: str, name: str) -> dict | None:
+def _process_hk_stock(code: str, name: str, spot: dict | None = None) -> dict | None:
     hist = _fetch_hk_hist(code)
     if hist is None or len(hist) < 10:
         return None
@@ -649,14 +684,23 @@ def _process_hk_stock(code: str, name: str) -> dict | None:
     avg_amt = float(hist.tail(30)['amount'].mean())
     analysis = classify_stock(hist)
 
+    # 优先使用实时行情里的价格和涨跌幅
+    if spot:
+        current_price = spot.get('current_price') or round(float(hist.iloc[-1]['close']), 3)
+        change_pct    = spot.get('change_pct')    if spot.get('change_pct') is not None \
+                        else round(float(hist.iloc[-1].get('change_pct', 0)), 2)
+    else:
+        current_price = round(float(hist.iloc[-1]['close']), 3)
+        change_pct    = round(float(hist.iloc[-1].get('change_pct', 0)), 2)
+
     return {
         'code':          code,
         'name':          name,
         'market':        '港股',
         'market_cap_yi': None,
         'avg_amt_yi':    round(avg_amt / 1e8, 2),
-        'current_price': round(float(hist.iloc[-1]['close']), 3),
-        'change_pct':    round(float(hist.iloc[-1].get('change_pct', 0)), 2),
+        'current_price': current_price,
+        'change_pct':    change_pct,
         'history':       history,
         **analysis,
     }
@@ -665,15 +709,16 @@ def _process_hk_stock(code: str, name: str) -> dict | None:
 def get_hk_connect_stocks(progress_cb=None) -> list[dict]:
     """获取沪港通成分股，不做量/市值过滤，直接做左侧/右侧分析"""
     logger.info("开始拉取 港股通 数据...")
-    pairs = _get_hk_connect_codes()
+    pairs, spot_map = _get_hk_connect_spot()
     if not pairs:
         return []
 
+    logger.info(f"港股通成分股 {len(pairs)} 只，实时行情 {len(spot_map)} 只")
     results, total, done = [], len(pairs), 0
 
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
         futures = {
-            pool.submit(_process_hk_stock, code, name): code
+            pool.submit(_process_hk_stock, code, name, spot_map.get(code)): code
             for code, name in pairs
         }
         for future in as_completed(futures):
