@@ -104,20 +104,16 @@ def classify_stock(hist_df: pd.DataFrame, pe_ttm: float = None, pb: float = None
     else:
         side = '观望'
 
-    # ---- 价值区间（需PE数据）----
+    # ---- 价值空间标签（独立于方向信号）----
     value_tag = None
     if pe_ttm is not None and pe_ttm > 0:
+        signals.append(f'PE{pe_ttm:.1f}倍')
         if pe_ttm < 10:
-            value_tag = '成熟股价值空间'
-            signals.append(f'PE仅{pe_ttm:.1f}倍')
-        elif pe_ttm < 20:
-            value_tag = 'PE合理'
-            signals.append(f'PE{pe_ttm:.1f}倍')
-        else:
-            value_tag = f'PE{pe_ttm:.0f}倍偏高'
-    elif pb is not None and pb > 0 and pb < 1:
-        value_tag = 'PB<1破净值'
-        signals.append(f'PB{pb:.2f}低于净资产')
+            value_tag = '💎价值空间'
+    if pb is not None and pb > 0:
+        if pb < 1:
+            value_tag = '💎价值空间'
+            signals.append(f'PB{pb:.2f}破净值')
 
     # ---- 信号强度 ----
     if side == '右侧':

@@ -800,14 +800,14 @@ function renderCard(s) {
     <span class="stock-price ${cc}">${fmt(s.current_price,3)}</span>
     <span class="stock-chg ${cc}">${chgStr(s.change_pct)}</span>
     <span class="side-tag ${s.side||''}">${s.side||''}</span>
-    ${strengthTag}
+    ${strengthTag}${valueTagHtml}
     ${wlBtn}
     <svg class="expand-icon" id="icon-${id}" width="11" height="11" viewBox="0 0 16 16" fill="currentColor">
       <path d="M1.646 4.646a.5.5 0 0 1 .708 0L8 10.293l5.646-5.647a.5.5 0 0 1 .708.708l-6 6a.5.5 0 0 1-.708 0l-6-6a.5.5 0 0 1 0-.708z"/>
     </svg>
   </div>
   <div class="card-body" id="${id}">
-    <div class="card-signals">${signals}${valueTagHtml}</div>
+    <div class="card-signals">${signals}</div>
     <div class="card-stats">
       <span>MA5:<b>${fmt(s.ma5,3)}</b></span>
       <span>MA10:<b>${fmt(s.ma10,3)}</b></span>
