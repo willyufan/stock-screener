@@ -169,39 +169,73 @@ header{flex-shrink:0;background:#161b22;border-bottom:1px solid #30363d;
 .progress-text{font-size:11px;color:#8b949e}
 
 /* ── TAB 2: WATCHLIST ────────────────────────────────────── */
-.watchlist-wrap{flex:1;overflow:hidden;display:flex;flex-direction:column}
-.wl-header{flex-shrink:0;padding:10px 20px;background:#161b22;border-bottom:1px solid #30363d;
-  display:flex;align-items:center;gap:12px}
-.wl-header h2{font-size:14px;font-weight:700;color:#e6edf3}
-.wl-count{font-size:12px;color:#8b949e}
-.wl-body{flex:1;overflow-y:auto;padding:16px 20px}
-.wl-body::-webkit-scrollbar{width:5px}
-.wl-body::-webkit-scrollbar-thumb{background:#30363d;border-radius:3px}
-.wl-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;
-  height:100%;gap:14px;color:#8b949e;text-align:center}
-.wl-empty svg{opacity:.2}
-.wl-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:10px}
-.wl-card{background:#161b22;border:1px solid #21262d;border-radius:10px;padding:14px 16px;
-  position:relative;transition:.15s}
-.wl-card:hover{border-color:#30363d}
-.wl-card-top{display:flex;align-items:center;gap:8px;margin-bottom:8px}
-.wl-code{font-size:11px;color:#8b949e;font-family:monospace}
-.wl-name{font-size:13px;font-weight:700;flex:1}
-.wl-price{font-size:14px;font-weight:700;font-family:monospace}
-.wl-chg{font-size:11px;font-weight:600;font-family:monospace}
-.wl-remove{position:absolute;top:10px;right:12px;background:transparent;border:none;
-  color:#8b949e;cursor:pointer;font-size:16px;line-height:1;transition:.12s;padding:2px 5px}
+/* 3-column layout */
+.wl-3col{flex:1;display:flex;overflow:hidden}
+
+/* Col 1 — Stock list */
+.wl-col1{width:260px;flex-shrink:0;border-right:1px solid #30363d;display:flex;flex-direction:column;overflow:hidden}
+.wl-col1-header{flex-shrink:0;padding:10px 14px;background:#161b22;border-bottom:1px solid #21262d;
+  display:flex;align-items:center;gap:8px}
+.wl-col1-header h2{font-size:13px;font-weight:700}
+.wl-count{font-size:11px;color:#8b949e}
+.wl-list{flex:1;overflow-y:auto}
+.wl-list::-webkit-scrollbar{width:4px}
+.wl-list::-webkit-scrollbar-thumb{background:#30363d;border-radius:2px}
+.wl-item{padding:10px 14px;border-bottom:1px solid #21262d;cursor:pointer;transition:.12s;position:relative}
+.wl-item:hover{background:#161b22}
+.wl-item.selected{background:#0d1a2d;border-left:3px solid #58a6ff}
+.wl-item-top{display:flex;align-items:center;gap:6px;margin-bottom:4px}
+.wl-code{font-size:10px;color:#8b949e;font-family:monospace}
+.wl-name{font-size:12px;font-weight:600;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.wl-remove{background:transparent;border:none;color:#8b949e;cursor:pointer;font-size:14px;
+  padding:0 2px;transition:.12s;flex-shrink:0;line-height:1}
 .wl-remove:hover{color:#f85149}
-.wl-tags{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:8px}
-.wl-meta{font-size:10px;color:#8b949e;display:flex;gap:12px;flex-wrap:wrap}
-.wl-meta span b{color:#e6edf3}
-.status-delta{display:inline-flex;align-items:center;gap:3px;font-size:10px;font-weight:600;
-  padding:1px 5px;border-radius:3px}
-.status-delta.improved{background:#1a3a1a;color:#3fb950}
-.status-delta.worsened{background:#3a1a1a;color:#f85149}
-.status-delta.unchanged{background:#1a1a1a;color:#8b949e}
-.wl-hist-mini{display:flex;gap:3px;margin-top:6px;flex-wrap:wrap}
-.hist-dot{width:7px;height:7px;border-radius:50%;cursor:default;flex-shrink:0}
+.wl-item-mid{display:flex;align-items:center;gap:6px;margin-bottom:3px}
+.wl-price{font-size:13px;font-weight:700;font-family:monospace}
+.wl-chg{font-size:11px;font-weight:600;font-family:monospace}
+.wl-item-tags{display:flex;flex-wrap:wrap;gap:3px;margin-top:3px}
+.wl-delta{display:inline-flex;align-items:center;font-size:10px;font-weight:600;padding:1px 5px;border-radius:3px}
+.wl-delta.improved{background:#1a3a1a;color:#3fb950}
+.wl-delta.worsened{background:#3a1a1a;color:#f85149}
+.wl-delta.unchanged{background:#1a1a1a;color:#8b949e}
+.wl-empty-col{display:flex;flex-direction:column;align-items:center;justify-content:center;
+  height:100%;gap:10px;color:#8b949e;text-align:center;padding:20px;font-size:12px}
+.wl-empty-col svg{opacity:.2}
+
+/* Col 2 — K-line detail */
+.wl-col2{flex:1;min-width:0;display:flex;flex-direction:column;overflow:hidden;border-right:1px solid #30363d}
+.wl-col2-header{flex-shrink:0;padding:10px 16px;background:#161b22;border-bottom:1px solid #21262d;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.wl-detail-name{font-size:15px;font-weight:700}
+.wl-detail-code{font-size:11px;color:#8b949e;font-family:monospace}
+.wl-col2-body{flex:1;overflow-y:auto;padding:14px 16px}
+.wl-col2-body::-webkit-scrollbar{width:5px}
+.wl-col2-body::-webkit-scrollbar-thumb{background:#30363d;border-radius:3px}
+.wl-kline-stats{display:flex;gap:14px;margin-bottom:12px;flex-wrap:wrap;font-size:11px;color:#8b949e}
+.wl-kline-stats span b{color:#e6edf3;font-weight:600}
+.wl-signals-row{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:12px}
+.wl-section-title{font-size:11px;font-weight:600;color:#8b949e;text-transform:uppercase;
+  letter-spacing:.4px;margin-bottom:7px;border-bottom:1px solid #21262d;padding-bottom:4px}
+.wl-placeholder{display:flex;flex-direction:column;align-items:center;justify-content:center;
+  height:100%;gap:12px;color:#8b949e;text-align:center}
+.wl-placeholder svg{opacity:.15}
+
+/* Col 3 — Status history timeline */
+.wl-col3{width:280px;flex-shrink:0;display:flex;flex-direction:column;overflow:hidden}
+.wl-col3-header{flex-shrink:0;padding:10px 14px;background:#161b22;border-bottom:1px solid #21262d}
+.wl-col3-header h3{font-size:12px;font-weight:600;color:#8b949e;text-transform:uppercase;letter-spacing:.4px}
+.wl-timeline{flex:1;overflow-y:auto;padding:8px 0}
+.wl-timeline::-webkit-scrollbar{width:4px}
+.wl-timeline::-webkit-scrollbar-thumb{background:#30363d;border-radius:2px}
+.wl-tl-item{padding:10px 14px;border-bottom:1px solid #21262d;position:relative;transition:.12s}
+.wl-tl-item:hover{background:#161b22}
+.wl-tl-item.changed{background:#0d1a2d}
+.wl-tl-date{font-size:10px;color:#8b949e;font-family:monospace;margin-bottom:5px;display:flex;align-items:center;gap:5px}
+.wl-tl-change-badge{font-size:9px;font-weight:700;padding:1px 5px;border-radius:3px;background:#1f3a5a;color:#58a6ff}
+.wl-tl-tags{display:flex;flex-wrap:wrap;gap:3px;margin-bottom:5px}
+.wl-tl-price{font-size:11px;font-family:monospace;display:flex;align-items:center;gap:6px}
+.wl-tl-score{font-size:10px;color:#8b949e}
+.wl-tl-indicators{font-size:10px;color:#8b949e;margin-top:4px;line-height:1.5}
+.wl-tl-signals{display:flex;flex-wrap:wrap;gap:3px;margin-top:4px}
 
 /* ── TAB 3: DCF ──────────────────────────────────────────── */
 .dcf-wrap{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px}
@@ -307,11 +341,29 @@ header{flex-shrink:0;background:#161b22;border-bottom:1px solid #30363d;
         <option value="">── 历史快照 ──</option>
       </select>
     </div>
-    <button class="btn" id="btnRefresh" onclick="triggerScan()">
-      <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
-        <path d="M1.705 8a6.3 6.3 0 0 1 11.91-2.205L11 7h5V2l-1.957 1.957A7.8 7.8 0 0 0 .2 8.5l1.5.1A6.3 6.3 0 0 1 1.705 8Zm12.59 0A6.3 6.3 0 0 1 2.385 10.205L5 9H0v5l1.957-1.957A7.8 7.8 0 0 0 15.8 7.5l-1.5-.1A6.3 6.3 0 0 1 14.295 8Z"/>
-      </svg>扫描
-    </button>
+    <div style="position:relative">
+      <button class="btn" id="btnRefresh" onclick="openScanPicker()">
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+          <path d="M1.705 8a6.3 6.3 0 0 1 11.91-2.205L11 7h5V2l-1.957 1.957A7.8 7.8 0 0 0 .2 8.5l1.5.1A6.3 6.3 0 0 1 1.705 8Zm12.59 0A6.3 6.3 0 0 1 2.385 10.205L5 9H0v5l1.957-1.957A7.8 7.8 0 0 0 15.8 7.5l-1.5-.1A6.3 6.3 0 0 1 14.295 8Z"/>
+        </svg>扫描
+      </button>
+      <!-- Date picker popover -->
+      <div id="scanPicker" style="display:none;position:absolute;top:calc(100% + 8px);right:0;
+        background:#161b22;border:1px solid #30363d;border-radius:10px;padding:14px 16px;
+        min-width:240px;z-index:300;box-shadow:0 8px 24px rgba(0,0,0,.5)">
+        <div style="font-size:12px;color:#8b949e;margin-bottom:8px;font-weight:600">选择交易日期</div>
+        <input type="date" id="scanDateInput" style="width:100%;padding:6px 8px;background:#21262d;
+          border:1px solid #30363d;border-radius:6px;color:#e6edf3;font-size:13px;margin-bottom:10px"
+          onkeydown="if(event.key==='Enter')doScan()"/>
+        <div style="display:flex;gap:7px">
+          <button onclick="doScan()" style="flex:1;padding:6px;border-radius:6px;border:1px solid #238636;
+            background:#1a3a1a;color:#3fb950;cursor:pointer;font-size:12px;font-weight:600">▶ 扫描</button>
+          <button onclick="closeScanPicker()" style="padding:6px 10px;border-radius:6px;border:1px solid #30363d;
+            background:transparent;color:#8b949e;cursor:pointer;font-size:12px">取消</button>
+        </div>
+        <div id="scanPickerMsg" style="margin-top:8px;font-size:11px;color:#f0883e;display:none"></div>
+      </div>
+    </div>
     <button class="btn btn-green" id="btnFullScan" onclick="triggerFullScan()">⚡ 全量扫描</button>
   </div>
 </header>
@@ -430,22 +482,62 @@ header{flex-shrink:0;background:#161b22;border-bottom:1px solid #30363d;
 
 <!-- ══════════════ TAB 2: 自选池 ══════════════ -->
 <div class="tab-panel" id="tab-watchlist">
-  <div class="watchlist-wrap">
-    <div class="wl-header">
-      <h2>⭐ 自选池</h2>
-      <span class="wl-count" id="wlCount">0 只</span>
-      <span style="font-size:11px;color:#8b949e;margin-left:8px">（下次扫描时自动更新状态）</span>
-    </div>
-    <div class="wl-body" id="wlBody">
-      <div class="wl-empty" id="wlEmpty">
-        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2">
-          <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
-        </svg>
-        <div>自选池为空</div>
-        <div style="font-size:12px">在股票筛选中点击 ⭐ 按钮添加股票</div>
+  <div class="wl-3col">
+
+    <!-- ── Col 1: Stock list ── -->
+    <div class="wl-col1">
+      <div class="wl-col1-header">
+        <h2>⭐ 自选池</h2>
+        <span class="wl-count" id="wlCount">0只</span>
       </div>
-      <div class="wl-grid" id="wlGrid" style="display:none"></div>
+      <div class="wl-list" id="wlList">
+        <div class="wl-empty-col" id="wlEmpty">
+          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2">
+            <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
+          </svg>
+          <div>自选池为空</div>
+          <div>在筛选结果中点击 ☆ 添加</div>
+        </div>
+      </div>
     </div>
+
+    <!-- ── Col 2: K-line detail ── -->
+    <div class="wl-col2">
+      <div class="wl-col2-header" id="wlDetailHeader" style="display:none">
+        <div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span class="wl-detail-code" id="wlDetailCode"></span>
+            <span class="wl-detail-name" id="wlDetailName"></span>
+            <span id="wlDetailPrice" style="font-size:15px;font-weight:700;font-family:monospace"></span>
+            <span id="wlDetailChg" style="font-size:12px;font-weight:600;font-family:monospace"></span>
+          </div>
+          <div style="display:flex;gap:6px;margin-top:5px;flex-wrap:wrap" id="wlDetailTags"></div>
+        </div>
+      </div>
+      <div class="wl-col2-body" id="wlDetailBody">
+        <div class="wl-placeholder">
+          <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2">
+            <rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/>
+          </svg>
+          <div>点击左侧自选股</div>
+          <div style="font-size:12px">查看近期K线和技术指标</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Col 3: Status timeline ── -->
+    <div class="wl-col3">
+      <div class="wl-col3-header">
+        <h3>📅 历史信号变化</h3>
+      </div>
+      <div class="wl-timeline" id="wlTimeline">
+        <div class="wl-empty-col">
+          <div style="font-size:12px">选中股票后显示</div>
+          <div style="font-size:11px;color:#6e7681">每日扫描时自动记录</div>
+        </div>
+      </div>
+    </div>
+
   </div>
 </div>
 
@@ -875,36 +967,82 @@ function startPoll() {
 }
 
 // ══════════════════════════════════════════════
-// Scan / Full Scan
+// Scan Date Picker
 // ══════════════════════════════════════════════
-async function triggerScan() {
-  const btn = document.getElementById('btnRefresh');
-  btn.disabled = true;
-  btn.classList.add('spinning');
+function _lastTradingDay() {
+  const bj = new Date(Date.now() + (8 * 60 - new Date().getTimezoneOffset()) * 60000);
+  const day = bj.getUTCDay();
+  const offset = day === 0 ? 2 : day === 6 ? 1 : 0;
+  bj.setUTCDate(bj.getUTCDate() - offset);
+  return bj.toISOString().slice(0, 10);
+}
+
+function openScanPicker() {
+  const picker = document.getElementById('scanPicker');
+  const input  = document.getElementById('scanDateInput');
+  if (!input.value) input.value = _lastTradingDay();
+  input.max = new Date().toISOString().slice(0, 10);
+  picker.style.display = picker.style.display === 'none' ? '' : 'none';
+  if (picker.style.display !== 'none') setTimeout(() => input.focus(), 50);
+}
+
+function closeScanPicker() {
+  document.getElementById('scanPicker').style.display = 'none';
+  document.getElementById('scanPickerMsg').style.display = 'none';
+}
+
+document.addEventListener('click', e => {
+  const picker = document.getElementById('scanPicker');
+  const btn    = document.getElementById('btnRefresh');
+  if (picker && !picker.contains(e.target) && btn && !btn.contains(e.target)) {
+    picker.style.display = 'none';
+  }
+});
+
+async function doScan() {
+  const input = document.getElementById('scanDateInput');
+  const msg   = document.getElementById('scanPickerMsg');
+  const date  = input ? input.value : '';
+  msg.style.display = 'none';
+
   try {
     const resp = await fetch('/api/scan', {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({market: currentMarket})
+      body: JSON.stringify({market: currentMarket, date})
     });
     const data = await resp.json();
+
+    if (data.status === 'non_trading') {
+      msg.textContent = data.message;
+      msg.style.display = '';
+      if (data.suggest && input) input.value = data.suggest;
+      return;
+    }
     if (data.status === 'already_latest') {
       showToast('✅ ' + data.message);
+      closeScanPicker();
       return;
     }
     if (data.status === 'already_loading') {
       showToast('⏳ 正在扫描中，请稍候', 'warn');
+      closeScanPicker();
       startPoll();
       return;
     }
-    setStatus('loading', '扫描中…');
+    if (data.error) {
+      msg.textContent = data.error;
+      msg.style.display = '';
+      return;
+    }
+
+    closeScanPicker();
+    setStatus('loading', `扫描 ${date || '最新'} 数据中…`);
     clearAll();
     document.getElementById('historySelect').value = '';
     startPoll();
   } catch(e) {
-    setStatus('red', '请求失败');
-  } finally {
-    setTimeout(() => { btn.disabled=false; btn.classList.remove('spinning'); }, 3000);
+    if (msg) { msg.textContent = '请求失败: ' + e; msg.style.display = ''; }
   }
 }
 
@@ -1024,71 +1162,262 @@ function sortPanel(panel, key) {
 // ══════════════════════════════════════════════
 // Watchlist
 // ══════════════════════════════════════════════
+let wlData = [];          // full watchlist array
+let selectedWlCode = null;
+
 async function loadWatchlist() {
   try {
     const resp = await fetch('/api/watchlist');
-    const list = await resp.json();
-    watchlistCodes = new Set(list.map(s => s.code));
-    renderWatchlist(list);
+    wlData = await resp.json();
+    watchlistCodes = new Set(wlData.map(s => s.code));
+    renderWlList(wlData);
     const cnt = document.getElementById('wlNavCount');
-    if (cnt) cnt.textContent = list.length > 0 ? `(${list.length})` : '';
+    if (cnt) cnt.textContent = wlData.length > 0 ? `(${wlData.length})` : '';
     const wlCnt = document.getElementById('wlCount');
-    if (wlCnt) wlCnt.textContent = list.length + ' 只';
+    if (wlCnt) wlCnt.textContent = wlData.length + '只';
+    // Re-select if there was a selection
+    if (selectedWlCode && wlData.find(s => s.code === selectedWlCode)) {
+      selectWlStock(selectedWlCode);
+    }
   } catch(e) { console.warn('loadWatchlist:', e); }
 }
 
-function renderWatchlist(list) {
-  const empty = document.getElementById('wlEmpty');
-  const grid  = document.getElementById('wlGrid');
-  if (!grid) return;
+function renderWlList(list) {
+  const listEl = document.getElementById('wlList');
+  const empty  = document.getElementById('wlEmpty');
+  if (!listEl) return;
+
   if (!list || list.length === 0) {
     if (empty) empty.style.display = 'flex';
-    grid.style.display = 'none';
     return;
   }
   if (empty) empty.style.display = 'none';
-  grid.style.display = 'grid';
-  grid.innerHTML = list.map(entry => {
-    const cur = entry.current_status;
+
+  const sideOrder = {'右侧':2,'观望':1,'左侧':0};
+
+  listEl.innerHTML = list.map(entry => {
+    const cur  = entry.current_status;
     const hist = entry.status_history || [];
     const prev = hist.length >= 2 ? hist[hist.length - 2] : null;
 
+    // Delta badge
     let deltaHtml = '';
-    if (cur && prev) {
-      const sideOrder = {'右侧':2,'观望':1,'左侧':0};
-      const curOrd = sideOrder[cur.side] ?? 1;
+    if (cur && prev && cur.side !== prev.side) {
+      const curOrd  = sideOrder[cur.side]  ?? 1;
       const prevOrd = sideOrder[prev.side] ?? 1;
-      if (curOrd > prevOrd) deltaHtml = `<span class="status-delta improved">↑ 改善</span>`;
-      else if (curOrd < prevOrd) deltaHtml = `<span class="status-delta worsened">↓ 走弱</span>`;
-      else deltaHtml = `<span class="status-delta unchanged">→ 持平</span>`;
+      deltaHtml = curOrd > prevOrd
+        ? `<span class="wl-delta improved">↑改善</span>`
+        : `<span class="wl-delta worsened">↓走弱</span>`;
     }
 
-    const priceStr = cur ? `<span class="wl-price ${chgClass(cur.change_pct)}">${fmt(cur.price,3)}</span>
-      <span class="wl-chg ${chgClass(cur.change_pct)}">${chgStr(cur.change_pct)}</span>` : '<span style="color:#8b949e">未更新</span>';
+    const priceHtml = cur
+      ? `<span class="wl-price ${chgClass(cur.change_pct)}">${fmt(cur.price,3)}</span>
+         <span class="wl-chg ${chgClass(cur.change_pct)}">${chgStr(cur.change_pct)}</span>`
+      : `<span style="color:#8b949e;font-size:11px">未更新</span>`;
 
-    const sideTag = cur ? `<span class="side-tag ${cur.side||''}">${cur.side||''}</span>` : '';
-    const sigTag  = cur && cur.signal_strength ? `<span class="strength-tag ${strengthClass(cur.signal_strength)}">${cur.signal_strength}</span>` : '';
-    const valTag  = cur && cur.value_tag ? `<span class="value-tag-badge">${cur.value_tag}</span>` : '';
+    const sideTag = cur ? `<span class="side-tag ${cur.side||''}" style="font-size:10px;padding:1px 5px">${cur.side||''}</span>` : '';
+    const sigTag  = cur && cur.signal_strength
+      ? `<span class="strength-tag ${strengthClass(cur.signal_strength)}" style="font-size:10px">${cur.signal_strength}</span>` : '';
 
-    // Mini history dots
-    const dotColors = {'右侧':'#3fb950','左侧':'#f85149','观望':'#58a6ff'};
-    const miniDots = hist.slice(-14).map(h =>
-      `<div class="hist-dot" style="background:${dotColors[h.side]||'#30363d'}" title="${h.date} ${h.side||''} ${h.signal_strength||''}"></div>`
-    ).join('');
-
-    return `<div class="wl-card">
-      <button class="wl-remove" onclick="removeFromWatchlist('${entry.code}')" title="移出自选池">×</button>
-      <div class="wl-card-top">
+    const isSelected = entry.code === selectedWlCode;
+    return `<div class="wl-item${isSelected?' selected':''}" onclick="selectWlStock('${entry.code}')">
+      <div class="wl-item-top">
         <span class="wl-code">${entry.code}</span>
-        <span class="wl-name">${entry.name||entry.code}</span>
-        ${priceStr}
+        <span class="wl-name" title="${entry.name||''}">${entry.name||entry.code}</span>
+        <button class="wl-remove" onclick="event.stopPropagation();removeFromWatchlist('${entry.code}')" title="移出自选池">×</button>
       </div>
-      <div class="wl-tags">${sideTag}${sigTag}${valTag}${deltaHtml}</div>
-      <div class="wl-meta">
-        <span>加入：<b>${(entry.added_at||'').slice(0,10)}</b></span>
-        ${cur ? `<span>RSI：<b>${fmt(cur.right_score!=null?cur.right_score:'-')}</b></span>` : ''}
+      <div class="wl-item-mid">${priceHtml}</div>
+      <div class="wl-item-tags">${sideTag}${sigTag}${deltaHtml}</div>
+    </div>`;
+  }).join('');
+}
+
+async function selectWlStock(code) {
+  selectedWlCode = code;
+  // Update selected state in list
+  document.querySelectorAll('.wl-item').forEach(el => {
+    el.classList.toggle('selected', el.getAttribute('onclick') && el.getAttribute('onclick').includes(`'${code}'`));
+  });
+
+  const entry = wlData.find(s => s.code === code);
+  if (!entry) return;
+
+  // Render timeline (col 3) immediately from stored data
+  renderWlTimeline(entry);
+
+  // Show header
+  const header = document.getElementById('wlDetailHeader');
+  if (header) header.style.display = '';
+
+  const cur = entry.current_status;
+  const nameEl  = document.getElementById('wlDetailName');
+  const codeEl  = document.getElementById('wlDetailCode');
+  const priceEl = document.getElementById('wlDetailPrice');
+  const chgEl   = document.getElementById('wlDetailChg');
+  const tagsEl  = document.getElementById('wlDetailTags');
+
+  if (nameEl)  nameEl.textContent  = entry.name || code;
+  if (codeEl)  codeEl.textContent  = code;
+  if (cur) {
+    if (priceEl) { priceEl.textContent = fmt(cur.price, 3); priceEl.className = chgClass(cur.change_pct); }
+    if (chgEl)   { chgEl.textContent   = chgStr(cur.change_pct); chgEl.className = chgClass(cur.change_pct); }
+    if (tagsEl) {
+      const sideTag = `<span class="side-tag ${cur.side||''}">${cur.side||''}</span>`;
+      const sigTag  = cur.signal_strength ? `<span class="strength-tag ${strengthClass(cur.signal_strength)}">${cur.signal_strength}</span>` : '';
+      const valTag  = cur.value_tag ? `<span class="value-tag-badge">${cur.value_tag}</span>` : '';
+      tagsEl.innerHTML = sideTag + sigTag + valTag;
+    }
+  }
+
+  // Show loading in col 2 body
+  const body = document.getElementById('wlDetailBody');
+  if (body) body.innerHTML = `<div class="wl-placeholder"><div style="color:#8b949e;font-size:12px">加载K线数据...</div></div>`;
+
+  // Fetch from latest scan
+  const market = entry.market === '港股' ? 'hk' : 'a_share';
+  try {
+    const resp = await fetch(`/api/stock_detail?code=${encodeURIComponent(code)}&market=${market}`);
+    if (!resp.ok) throw new Error('not found');
+    const stock = await resp.json();
+    renderWlDetail(stock, entry);
+  } catch(e) {
+    // Fallback: render from status_history data only
+    renderWlDetailFromHistory(entry);
+  }
+}
+
+function renderWlDetail(stock, entry) {
+  const body = document.getElementById('wlDetailBody');
+  if (!body) return;
+
+  const histRows = (stock.history || []).map((h, i) => {
+    const hcc = chgClass(h.change_pct);
+    const isLast = i === (stock.history.length - 1);
+    return `<tr class="${isLast?'today':''}">
+      <td>${h.date||''}</td>
+      <td>${fmt(h.open,3)}</td>
+      <td><b class="${hcc}">${fmt(h.close,3)}</b></td>
+      <td>${fmt(h.high,3)}</td>
+      <td>${fmt(h.low,3)}</td>
+      <td class="${hcc}">${chgStr(h.change_pct)}</td>
+      <td style="color:#8b949e">${fmtAmt(h.amount_yi)}</td>
+    </tr>`;
+  }).join('') || `<tr><td colspan="7" style="color:#8b949e;text-align:center;padding:12px">暂无K线数据</td></tr>`;
+
+  const signals = (stock.signals || []).map(s => `<span class="signal-chip">${s}</span>`).join('');
+  const valTag  = stock.value_tag ? `<span class="value-tag-badge">${stock.value_tag}</span>` : '';
+
+  body.innerHTML = `
+    <div class="wl-section-title">技术指标</div>
+    <div class="wl-kline-stats">
+      <span>MA5:<b>${fmt(stock.ma5,3)}</b></span>
+      <span>MA10:<b>${fmt(stock.ma10,3)}</b></span>
+      <span>MA20:<b>${fmt(stock.ma20,3)}</b></span>
+      <span>RSI(14):<b>${fmt(stock.rsi14,1)}</b></span>
+      <span>30日位置:<b>${stock.price_position||0}%</b></span>
+      <span>右侧评分:<b>${stock.right_score||0}/7</b></span>
+      <span>左侧评分:<b>${stock.left_score||0}/7</b></span>
+      <span>30日均成交:<b>${fmtAmt(stock.avg_amt_yi)}</b></span>
+    </div>
+    <div class="wl-signals-row">${signals}${valTag}</div>
+    <div class="wl-section-title">近期K线（近10个交易日）</div>
+    <div style="overflow-x:auto">
+      <table class="price-table">
+        <thead><tr>
+          <th style="text-align:left">日期</th><th>开盘</th><th>收盘</th><th>最高</th><th>最低</th><th>涨跌%</th><th>成交额</th>
+        </tr></thead>
+        <tbody>${histRows}</tbody>
+      </table>
+    </div>`;
+}
+
+function renderWlDetailFromHistory(entry) {
+  const body = document.getElementById('wlDetailBody');
+  if (!body) return;
+  const cur = entry.current_status;
+  if (!cur) {
+    body.innerHTML = `<div class="wl-placeholder"><div style="font-size:12px">暂无数据，请先执行扫描</div></div>`;
+    return;
+  }
+  body.innerHTML = `
+    <div class="wl-section-title">最新技术指标（来自最后一次扫描）</div>
+    <div class="wl-kline-stats">
+      <span>MA5:<b>${fmt(cur.ma5,3)}</b></span>
+      <span>MA10:<b>${fmt(cur.ma10,3)}</b></span>
+      <span>MA20:<b>${fmt(cur.ma20,3)}</b></span>
+      <span>RSI(14):<b>${fmt(cur.rsi14,1)}</b></span>
+      <span>30日位置:<b>${cur.price_position||0}%</b></span>
+      <span>右侧评分:<b>${cur.right_score||0}</b></span>
+      <span>左侧评分:<b>${cur.left_score||0}</b></span>
+    </div>
+    <div class="wl-signals-row">${(cur.signals||[]).map(s=>`<span class="signal-chip">${s}</span>`).join('')}</div>
+    <div class="wl-placeholder" style="height:auto;padding:20px">
+      <div style="font-size:12px;color:#8b949e">K线详情需要当前扫描数据</div>
+      <div style="font-size:11px;color:#6e7681">请在股票筛选页面扫描后再次查看</div>
+    </div>`;
+}
+
+function renderWlTimeline(entry) {
+  const timeline = document.getElementById('wlTimeline');
+  if (!timeline) return;
+  const hist = (entry.status_history || []).slice().reverse(); // newest first
+
+  if (hist.length === 0) {
+    timeline.innerHTML = `<div class="wl-empty-col">
+      <div style="font-size:12px">暂无历史记录</div>
+      <div style="font-size:11px;color:#6e7681">扫描后自动记录</div>
+    </div>`;
+    return;
+  }
+
+  const sideOrder  = {'右侧':2,'观望':1,'左侧':0};
+  const dotColors  = {'右侧':'#3fb950','左侧':'#f85149','观望':'#58a6ff'};
+
+  timeline.innerHTML = hist.map((h, i) => {
+    const prev = hist[i + 1];  // previous (older) entry
+    const sideChanged = prev && h.side !== prev.side;
+    const sigChanged  = prev && h.signal_strength !== prev.signal_strength;
+    const isChanged   = sideChanged || sigChanged;
+
+    let changeBadge = '';
+    if (sideChanged) {
+      const cur2 = sideOrder[h.side] ?? 1;
+      const pre2 = sideOrder[prev.side] ?? 1;
+      changeBadge = cur2 > pre2
+        ? `<span class="wl-tl-change-badge" style="background:#1a3a1a;color:#3fb950">↑ 由${prev.side}转${h.side}</span>`
+        : `<span class="wl-tl-change-badge" style="background:#3a1a1a;color:#f85149">↓ 由${prev.side}转${h.side}</span>`;
+    } else if (sigChanged) {
+      changeBadge = `<span class="wl-tl-change-badge">信号变化</span>`;
+    }
+
+    const dotColor = dotColors[h.side] || '#8b949e';
+    const sideTag  = `<span class="side-tag ${h.side||''}" style="font-size:10px;padding:1px 5px">${h.side||''}</span>`;
+    const sigTag   = h.signal_strength ? `<span class="strength-tag ${strengthClass(h.signal_strength)}" style="font-size:10px">${h.signal_strength}</span>` : '';
+    const valTag   = h.value_tag ? `<span class="value-tag-badge" style="font-size:10px">${h.value_tag}</span>` : '';
+
+    const indicators = [
+      h.ma5    != null ? `MA5:${fmt(h.ma5,2)}` : null,
+      h.ma20   != null ? `MA20:${fmt(h.ma20,2)}` : null,
+      h.rsi14  != null ? `RSI:${fmt(h.rsi14,1)}` : null,
+      h.price_position != null ? `位置:${h.price_position}%` : null,
+    ].filter(Boolean).join(' · ');
+
+    const signals = (h.signals || []).slice(0,3).map(s => `<span class="signal-chip" style="font-size:9px">${s}</span>`).join('');
+
+    return `<div class="wl-tl-item${isChanged?' changed':''}">
+      <div class="wl-tl-date">
+        <span style="width:7px;height:7px;border-radius:50%;background:${dotColor};display:inline-block;flex-shrink:0"></span>
+        <b>${h.date||''}</b>
+        ${changeBadge}
       </div>
-      ${miniDots ? `<div class="wl-hist-mini" title="近14日状态">${miniDots}</div>` : ''}
+      <div class="wl-tl-tags">${sideTag}${sigTag}${valTag}</div>
+      <div class="wl-tl-price">
+        <span class="${chgClass(h.change_pct)}" style="font-family:monospace;font-size:12px;font-weight:700">${fmt(h.price,3)}</span>
+        <span class="${chgClass(h.change_pct)}" style="font-size:10px">${chgStr(h.change_pct)}</span>
+        <span class="wl-tl-score">R:${h.right_score||0} L:${h.left_score||0}</span>
+      </div>
+      ${indicators ? `<div class="wl-tl-indicators">${indicators}</div>` : ''}
+      ${signals ? `<div class="wl-tl-signals">${signals}</div>` : ''}
     </div>`;
   }).join('');
 }
@@ -1125,21 +1454,33 @@ async function removeFromWatchlist(code) {
   try {
     await fetch('/api/watchlist/' + encodeURIComponent(code), {method:'DELETE'});
     watchlistCodes.delete(code);
+    if (selectedWlCode === code) {
+      selectedWlCode = null;
+      const header = document.getElementById('wlDetailHeader');
+      if (header) header.style.display = 'none';
+      const body = document.getElementById('wlDetailBody');
+      if (body) body.innerHTML = `<div class="wl-placeholder">
+        <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2">
+          <rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/>
+        </svg>
+        <div>点击左侧自选股</div><div style="font-size:12px">查看近期K线和技术指标</div>
+      </div>`;
+      const tl = document.getElementById('wlTimeline');
+      if (tl) tl.innerHTML = `<div class="wl-empty-col"><div style="font-size:12px">选中股票后显示</div></div>`;
+    }
     showToast('已从自选池移除');
     updateWatchlistBtns();
-    loadWatchlist();
+    await loadWatchlist();
     const cnt = document.getElementById('wlNavCount');
     if (cnt) cnt.textContent = watchlistCodes.size > 0 ? `(${watchlistCodes.size})` : '';
   } catch(e) { showToast('操作失败', 'error'); }
 }
 
 function updateWatchlistBtns() {
-  // Update ⭐ buttons in current visible cards
   document.querySelectorAll('.btn-watchlist').forEach(btn => {
     const card = btn.closest('.stock-card');
     if (!card) return;
-    const id = card.id; // sc-{code}
-    const code = id.replace('sc-','');
+    const code = card.id.replace('sc-','');
     const inList = watchlistCodes.has(code);
     btn.textContent = inList ? '★' : '☆';
     btn.className = 'btn-watchlist' + (inList ? ' in-list' : '');

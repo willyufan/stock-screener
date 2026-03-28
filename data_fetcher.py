@@ -140,11 +140,15 @@ class RateLimiter:
 _limiter = RateLimiter()
 
 
-def _start_date() -> str:
-    return (_now_cst() - timedelta(days=DAYS_LOOKBACK)).strftime('%Y%m%d')
+def _start_date(end: str | None = None) -> str:
+    if end:
+        base = datetime.strptime(end, '%Y%m%d')
+    else:
+        base = _now_cst()
+    return (base - timedelta(days=DAYS_LOOKBACK)).strftime('%Y%m%d')
 
-def _end_date() -> str:
-    return _now_cst().strftime('%Y%m%d')
+def _end_date(date: str | None = None) -> str:
+    return date or _now_cst().strftime('%Y%m%d')
 
 
 # ── 列名标准化 ───────────────────────────────────────────────────────────────
@@ -191,13 +195,14 @@ def _a_to_ts(symbol: str) -> str:
     return f"{symbol}.BJ"
 
 
-def _fetch_a_hist_sina(symbol: str) -> pd.DataFrame | None:
+def _fetch_a_hist_sina(symbol: str, end_date: str | None = None) -> pd.DataFrame | None:
     _limiter.wait()
+    ed = _end_date(end_date)
     try:
         df = ak.stock_zh_a_daily(
             symbol=symbol,
-            start_date=_start_date(),
-            end_date=_end_date(),
+            start_date=_start_date(ed),
+            end_date=ed,
             adjust='qfq',
         )
         if df is None or df.empty:
@@ -208,13 +213,14 @@ def _fetch_a_hist_sina(symbol: str) -> pd.DataFrame | None:
         return None
 
 
-def _fetch_a_hist_tushare(symbol: str) -> pd.DataFrame | None:
+def _fetch_a_hist_tushare(symbol: str, end_date: str | None = None) -> pd.DataFrame | None:
     if _ts_pro is None:
         return None
     _limiter.wait()
+    ed = _end_date(end_date)
     try:
         df = _ts_pro.daily(ts_code=_a_to_ts(symbol),
-                           start_date=_start_date(), end_date=_end_date())
+                           start_date=_start_date(ed), end_date=ed)
         if df is None or df.empty:
             return None
         df['amount'] = df['amount'].astype(float) * 1000  # 千元→元
@@ -224,28 +230,35 @@ def _fetch_a_hist_tushare(symbol: str) -> pd.DataFrame | None:
         return None
 
 
-def _fetch_a_hist(symbol: str) -> pd.DataFrame | None:
+def _fetch_a_hist(symbol: str, end_date: str | None = None) -> pd.DataFrame | None:
     """优先级: Tushare Pro → 新浪"""
-    df = _fetch_a_hist_tushare(symbol)
+    df = _fetch_a_hist_tushare(symbol, end_date)
     if df is not None and len(df) >= 15:
         return df
-    return _fetch_a_hist_sina(symbol)
+    return _fetch_a_hist_sina(symbol, end_date)
 
 
 # ════════════════════════════════════════════════════════════════
 #  A股 实时行情（Tushare daily 主，新浪 spot 备）
 # ════════════════════════════════════════════════════════════════
 
-def _get_a_spot_tushare() -> tuple[pd.DataFrame, str]:
+def _get_a_spot_tushare(date: str | None = None) -> tuple[pd.DataFrame, str]:
     """
     优先用 daily_basic（含精确总市值，需2000积分）
     回退 daily（免费，无市值）
+    date: 指定交易日 YYYYMMDD；None 则自动找最近交易日
     """
     if _ts_pro is None:
         return pd.DataFrame(), ''
 
-    for offset in range(5):
-        td = (_now_cst() - timedelta(days=offset)).strftime('%Y%m%d')
+    # 若指定日期，只尝试该日期；否则往前找5天
+    offsets = [0] if date else range(5)
+
+    for offset in offsets:
+        if date:
+            td = date
+        else:
+            td = (_now_cst() - timedelta(days=offset)).strftime('%Y%m%d')
 
         # 1. daily_basic + daily 合并（有市值、PE、成交额）
         try:
@@ -308,18 +321,24 @@ def _get_a_spot_sina() -> tuple[pd.DataFrame, str]:
         return pd.DataFrame(), ''
 
 
-def _get_a_spot() -> tuple[pd.DataFrame, str]:
+def _get_a_spot(date: str | None = None) -> tuple[pd.DataFrame, str]:
     """
     优先级：
       1. Tushare daily_basic（精确市值）
       2. Tushare daily（无市值，免费）
-      3. Sina spot（兜底，仅 Tushare 完全不可用时）
+      3. Sina spot（兜底，仅 Tushare 完全不可用时，且不支持历史日期）
+    date: YYYYMMDD，None 表示最新
     """
-    ts_df, ts_src = _get_a_spot_tushare()
+    ts_df, ts_src = _get_a_spot_tushare(date)
     if not ts_df.empty:
         return ts_df, ts_src
 
-    # Tushare 完全失败才用新浪
+    if date:
+        # 历史日期扫描，新浪只有实时数据，不适用
+        logger.warning(f"[A股] 历史日期 {date} Tushare 无数据（非交易日？）")
+        return pd.DataFrame(), 'no_data'
+
+    # 当日实时兜底走新浪
     logger.warning("Tushare 无数据，回退新浪 spot")
     return _get_a_spot_sina()
 
@@ -397,14 +416,14 @@ def _get_index_codes(index_ids=('000300', '000905')) -> set[str]:
 
 # ── 单只 A股 处理 ────────────────────────────────────────────────────────────
 
-def _process_a_stock(row) -> dict | None:
+def _process_a_stock(row, end_date: str | None = None) -> dict | None:
     symbol  = str(row.get('代码', '')).zfill(6)
     name    = str(row.get('名称', row.get('name', '')))
     if not name or name == symbol:
         name = _name_cache.get(symbol, symbol)
     mktcap  = float(row.get('总市值', 0) or 0)
 
-    hist = _fetch_a_hist(symbol)
+    hist = _fetch_a_hist(symbol, end_date)
     if hist is None or len(hist) < 15:
         return None
 
@@ -465,35 +484,35 @@ def _process_a_stock(row) -> dict | None:
 #  A股 主入口（两种模式）
 # ════════════════════════════════════════════════════════════════
 
-def get_a_share_stocks(progress_cb=None, full_scan=False) -> list[dict]:
+def get_a_share_stocks(progress_cb=None, full_scan=False, date: str | None = None) -> list[dict]:
     """
-    full_scan=False（普通刷新）：
-        沪深300 + 中证500 成分股 + 上次全量扫描合格代码
-    full_scan=True（全量扫描）：
-        全市场，仅用成交额做初步预筛
+    full_scan=False（普通刷新）：沪深300 + 中证500 成分股 + 上次全量合格代码
+    full_scan=True（全量）：全市场
+    date: YYYYMMDD 指定交易日（历史扫描），None 表示当日
     """
-    logger.info(f"开始拉取 A股 ({'全量扫描' if full_scan else '快速刷新'})...")
-    spot, source = _get_a_spot()
+    label = f"{'全量扫描' if full_scan else '快速刷新'}" + (f"@{date}" if date else '')
+    logger.info(f"开始拉取 A股 ({label})...")
+    spot, source = _get_a_spot(date)
 
     if spot.empty:
-        logger.error("A股 spot 数据获取失败")
+        if source == 'no_data':
+            logger.warning(f"A股 {date} 无交易数据（非交易日或数据未就绪）")
+        else:
+            logger.error("A股 spot 数据获取失败")
         return []
 
     has_mktcap = source == 'tushare_basic' and '总市值' in spot.columns
 
     if has_mktcap:
-        # 有精确市值：直接按100亿过滤，无需指数代理
         spot = spot[spot['总市值'] >= MIN_MARKET_CAP].copy()
         logger.info(f"精确市值过滤 >100亿 后: {len(spot)} 只")
     elif not full_scan:
-        # 无市值 + 快速模式：CSI 800 + 历史合格代码 做代理
         universe = _get_index_codes()
         universe |= load_qualified_codes()
         spot = spot[spot['代码'].astype(str).str.zfill(6).isin(universe)].copy()
         logger.info(f"快速模式（CSI800 + 历史合格）: {len(spot)} 只")
 
     if full_scan and not has_mktcap:
-        # 全量 + 无市值：宽松成交额预筛
         if '成交额' in spot.columns:
             spot = spot[spot['成交额'] >= MIN_AVG_VOLUME * 0.5].copy()
         logger.info(f"全量扫描预筛后: {len(spot)} 只")
@@ -505,7 +524,7 @@ def get_a_share_stocks(progress_cb=None, full_scan=False) -> list[dict]:
 
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
         futures = {
-            pool.submit(_process_a_stock, row): row.get('代码', '')
+            pool.submit(_process_a_stock, row, date): row.get('代码', '')
             for _, row in spot.iterrows()
         }
         for future in as_completed(futures):
@@ -610,15 +629,17 @@ def _hk_to_ts(symbol: str) -> str:
     return f"{symbol.lstrip('0').zfill(5)}.HK"
 
 
-def _fetch_hk_hist(symbol: str) -> pd.DataFrame | None:
+def _fetch_hk_hist(symbol: str, end_date: str | None = None) -> pd.DataFrame | None:
     _limiter.wait()
+    ed = _end_date(end_date)
+    sd = _start_date(ed)
 
     # 1. Tushare Pro hk_daily（主）
     if _ts_pro is not None:
         try:
             df = _ts_pro.hk_daily(
                 ts_code=_hk_to_ts(symbol),
-                start_date=_start_date(), end_date=_end_date()
+                start_date=sd, end_date=ed
             )
             if df is not None and not df.empty:
                 df['amount'] = df['amount'].astype(float)  # 已是 HKD 元
@@ -632,7 +653,7 @@ def _fetch_hk_hist(symbol: str) -> pd.DataFrame | None:
     try:
         df = ak.stock_hk_hist(
             symbol=symbol, period='daily',
-            start_date=_start_date(), end_date=_end_date(), adjust='qfq',
+            start_date=sd, end_date=ed, adjust='qfq',
         )
         if df is not None and not df.empty:
             result = _norm_hist(df)
@@ -646,7 +667,8 @@ def _fetch_hk_hist(symbol: str) -> pd.DataFrame | None:
         try:
             ticker = str(int(symbol.lstrip('0') or '0')).zfill(4)
             raw = yf.download(f"{ticker}.HK",
-                              start=(datetime.now() - timedelta(days=DAYS_LOOKBACK)).strftime('%Y-%m-%d'),
+                              start=(datetime.strptime(ed, '%Y%m%d') - timedelta(days=DAYS_LOOKBACK)).strftime('%Y-%m-%d'),
+                              end=(datetime.strptime(ed, '%Y%m%d') + timedelta(days=1)).strftime('%Y-%m-%d'),
                               progress=False, auto_adjust=True)
             if raw is not None and not raw.empty:
                 df = raw.reset_index().rename(columns={
@@ -663,8 +685,8 @@ def _fetch_hk_hist(symbol: str) -> pd.DataFrame | None:
     return None
 
 
-def _process_hk_stock(code: str, name: str, spot: dict | None = None) -> dict | None:
-    hist = _fetch_hk_hist(code)
+def _process_hk_stock(code: str, name: str, spot: dict | None = None, end_date: str | None = None) -> dict | None:
+    hist = _fetch_hk_hist(code, end_date)
     if hist is None or len(hist) < 10:
         return None
 
@@ -706,19 +728,25 @@ def _process_hk_stock(code: str, name: str, spot: dict | None = None) -> dict | 
     }
 
 
-def get_hk_connect_stocks(progress_cb=None) -> list[dict]:
-    """获取沪港通成分股，不做量/市值过滤，直接做左侧/右侧分析"""
-    logger.info("开始拉取 港股通 数据...")
+def get_hk_connect_stocks(progress_cb=None, date: str | None = None) -> list[dict]:
+    """获取沪港通成分股，不做量/市值过滤，直接做左侧/右侧分析
+    date: YYYYMMDD 历史日期；None 则用当日实时行情
+    """
+    logger.info("开始拉取 港股通 数据" + (f" @{date}" if date else "") + "...")
     pairs, spot_map = _get_hk_connect_spot()
     if not pairs:
         return []
+
+    # 历史日期扫描时不使用实时spot价格（用K线末尾价替代）
+    if date:
+        spot_map = {}
 
     logger.info(f"港股通成分股 {len(pairs)} 只，实时行情 {len(spot_map)} 只")
     results, total, done = [], len(pairs), 0
 
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
         futures = {
-            pool.submit(_process_hk_stock, code, name, spot_map.get(code)): code
+            pool.submit(_process_hk_stock, code, name, spot_map.get(code), date): code
             for code, name in pairs
         }
         for future in as_completed(futures):

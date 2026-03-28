@@ -63,14 +63,20 @@ def update_all_statuses(stocks_list: list):
         if entry['code'] in stock_map:
             s = stock_map[entry['code']]
             status = {
-                'date': today,
-                'side': s.get('side'),
+                'date':            today,
+                'side':            s.get('side'),
                 'signal_strength': s.get('signal_strength'),
-                'value_tag': s.get('value_tag'),
-                'change_pct': s.get('change_pct'),
-                'price': s.get('current_price'),
-                'right_score': s.get('right_score', 0),
-                'left_score': s.get('left_score', 0),
+                'value_tag':       s.get('value_tag'),
+                'change_pct':      s.get('change_pct'),
+                'price':           s.get('current_price'),
+                'right_score':     s.get('right_score', 0),
+                'left_score':      s.get('left_score', 0),
+                'ma5':             s.get('ma5'),
+                'ma10':            s.get('ma10'),
+                'ma20':            s.get('ma20'),
+                'rsi14':           s.get('rsi14'),
+                'price_position':  s.get('price_position'),
+                'signals':         s.get('signals', []),
             }
             hist = entry.get('status_history', [])
             if not hist or hist[-1].get('date') != today:

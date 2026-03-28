@@ -157,8 +157,11 @@ def _build_result(stocks: list) -> dict:
     }
 
 
-def _refresh(market: str, full_scan: bool = False):
-    label = f"[{market}]{'[全量]' if full_scan else ''}"
+def _refresh(market: str, full_scan: bool = False, date: str | None = None):
+    """
+    date: YYYYMMDD 指定交易日；None 表示最新
+    """
+    label = f"[{market}]{'[全量]' if full_scan else ''}" + (f"[{date}]" if date else '')
     logger.info(f"开始刷新 {label}...")
     with _lock:
         _cache[market]['status']   = 'loading'
@@ -169,13 +172,26 @@ def _refresh(market: str, full_scan: bool = False):
             stocks = data_fetcher.get_a_share_stocks(
                 progress_cb=lambda mk, d, t: _progress_cb(market, d, t),
                 full_scan=full_scan,
+                date=date,
             )
         else:
             stocks = data_fetcher.get_hk_connect_stocks(
                 progress_cb=lambda mk, d, t: _progress_cb(market, d, t),
+                date=date,
             )
 
-        now        = _now_cst().strftime('%Y-%m-%d %H:%M:%S')
+        if not stocks and date:
+            with _lock:
+                _cache[market]['status'] = 'error'
+                _cache[market]['error']  = f'{date} 无数据（非交易日或数据未就绪）'
+            logger.warning(f"{label} 无数据，可能是非交易日")
+            return []
+
+        # 使用指定日期或实际收盘时间作为时间戳
+        if date:
+            now = f"{date[:4]}-{date[4:6]}-{date[6:]} 收盘"
+        else:
+            now = _now_cst().strftime('%Y-%m-%d %H:%M:%S')
         close_time = _close_label(market)
         result     = _build_result(stocks)
 
@@ -208,8 +224,8 @@ def _refresh(market: str, full_scan: bool = False):
         return []
 
 
-def refresh_async(market: str, full_scan: bool = False):
-    t = threading.Thread(target=_refresh, args=(market, full_scan), daemon=True)
+def refresh_async(market: str, full_scan: bool = False, date: str | None = None):
+    t = threading.Thread(target=_refresh, args=(market, full_scan, date), daemon=True)
     t.start()
 
 
@@ -360,28 +376,61 @@ def api_refresh():
 
 @app.route('/api/scan', methods=['POST'])
 def api_scan():
-    market = (request.json or {}).get('market', 'a_share')
+    body   = request.json or {}
+    market = body.get('market', 'a_share')
+    date_input = body.get('date', '')   # YYYY-MM-DD from frontend
+
     if market not in ('a_share', 'hk'):
         return jsonify({'error': 'invalid market'}), 400
+
+    # 解析日期
+    date_ts = None        # YYYYMMDD for Tushare
+    date_label = None     # YYYY-MM-DD for display
+    if date_input:
+        try:
+            d = datetime.strptime(date_input, '%Y-%m-%d')
+            date_ts    = d.strftime('%Y%m%d')
+            date_label = date_input
+        except ValueError:
+            return jsonify({'error': f'日期格式错误: {date_input}'}), 400
+
+        # 不能扫描未来
+        if d.date() > _now_cst().date():
+            return jsonify({'error': '不能扫描未来日期'}), 400
+
+        # 周末检查（若是周末，提示使用最近交易日）
+        if d.weekday() >= 5:
+            # 找最近的工作日
+            last_td = d - timedelta(days=d.weekday() - 4)
+            return jsonify({
+                'status':  'non_trading',
+                'message': f'{date_input} 为周末，请选择 {last_td.strftime("%Y-%m-%d")}（最近交易日）',
+                'suggest': last_td.strftime('%Y-%m-%d'),
+            })
 
     with _lock:
         if _cache[market]['status'] == 'loading':
             return jsonify({'status': 'already_loading'})
         last_update = _cache[market].get('last_update')
 
-    # 判断是否今日已扫描过（以日为单位，无需重复扫描）
-    today      = _now_cst().strftime('%Y-%m-%d')
+    # 判断是否同日已扫描（仅在不指定历史日期时做此检查）
     close_time = _close_label(market)
-    if last_update and last_update[:10] == today:
-        return jsonify({
-            'status':      'already_latest',
-            'last_update': last_update,
-            'close_time':  close_time,
-            'message':     f'今日已扫描（{last_update[:16]}），无需重复',
-        })
+    if not date_ts:
+        today = _now_cst().strftime('%Y-%m-%d')
+        if last_update and last_update[:10] == today:
+            return jsonify({
+                'status':      'already_latest',
+                'last_update': last_update,
+                'close_time':  close_time,
+                'message':     f'今日已扫描（{last_update[:16]}），无需重复',
+            })
 
-    refresh_async(market)
-    return jsonify({'status': 'started', 'close_time': close_time})
+    refresh_async(market, date=date_ts)
+    return jsonify({
+        'status':     'started',
+        'close_time': close_time,
+        'date':       date_label or _now_cst().strftime('%Y-%m-%d'),
+    })
 
 
 @app.route('/api/scan_history')
@@ -443,6 +492,23 @@ def api_watchlist_add():
 def api_watchlist_remove(code):
     ok = wl_mod.remove_stock(code)
     return jsonify({'ok': ok})
+
+
+@app.route('/api/stock_detail')
+def api_stock_detail():
+    """从缓存中查找单只股票的完整数据（含K线历史）"""
+    code   = request.args.get('code', '')
+    market = request.args.get('market', 'a_share')
+    with _lock:
+        entry = _cache.get(market, {})
+        data  = entry.get('data')
+    if not data:
+        return jsonify({'error': 'no scan data'}), 404
+    all_stocks = data.get('right', []) + data.get('left', []) + data.get('other', [])
+    stock = next((s for s in all_stocks if s.get('code') == code), None)
+    if not stock:
+        return jsonify({'error': 'stock not found'}), 404
+    return jsonify(stock)
 
 
 # ── 策略路由 ──────────────────────────────────────────────────────────────────
