@@ -489,6 +489,7 @@ header{flex-shrink:0;background:#161b22;border-bottom:1px solid #30363d;
       <div class="wl-col1-header">
         <h2>⭐ 自选池</h2>
         <span class="wl-count" id="wlCount">0只</span>
+        <button class="btn btn-sm" id="btnWlRefresh" onclick="refreshWatchlistStatus()" title="用最新扫描数据更新自选池状态" style="margin-left:auto;font-size:11px;padding:2px 8px">↻ 更新</button>
       </div>
       <div class="wl-list" id="wlList">
         <div class="wl-empty-col" id="wlEmpty">
@@ -1180,6 +1181,25 @@ async function loadWatchlist() {
       selectWlStock(selectedWlCode);
     }
   } catch(e) { console.warn('loadWatchlist:', e); }
+}
+
+async function refreshWatchlistStatus() {
+  const btn = document.getElementById('btnWlRefresh');
+  if (btn) { btn.disabled = true; btn.textContent = '更新中...'; }
+  try {
+    const resp = await fetch('/api/watchlist/refresh', {method:'POST'});
+    if (!resp.ok) {
+      const err = await resp.json();
+      alert(err.error || '更新失败，请先扫描数据');
+      return;
+    }
+    await loadWatchlist();
+    if (selectedWlCode) selectWlStock(selectedWlCode);
+  } catch(e) {
+    alert('更新失败：' + e.message);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '↻ 更新'; }
+  }
 }
 
 function renderWlList(list) {

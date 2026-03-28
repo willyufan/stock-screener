@@ -117,6 +117,16 @@ def _save_cache():
         logger.warning(f"保存缓存失败: {e}")
 
 
+def _all_cached_stocks() -> list:
+    """从内存缓存中提取所有股票（A股 + 港股）"""
+    stocks = []
+    for market in ('a_share', 'hk'):
+        data = _cache[market].get('data', {})
+        for key in ('right', 'left', 'other'):
+            stocks.extend(data.get(key, []))
+    return stocks
+
+
 def _load_cache():
     if os.path.exists(CACHE_FILE):
         try:
@@ -128,6 +138,11 @@ def _load_cache():
                     _cache[k]['last_update'] = saved[k].get('last_update')
                     _cache[k]['status']      = 'ready'
             logger.info("从磁盘加载缓存完成")
+            # 同步更新自选池状态（解决重启后未更新问题）
+            stocks = _all_cached_stocks()
+            if stocks:
+                wl_mod.update_all_statuses(stocks)
+                logger.info(f"自选池状态已从缓存同步（{len(stocks)}只股票）")
         except Exception as e:
             logger.warning(f"读取缓存失败: {e}")
 
@@ -492,6 +507,16 @@ def api_watchlist_add():
 def api_watchlist_remove(code):
     ok = wl_mod.remove_stock(code)
     return jsonify({'ok': ok})
+
+@app.route('/api/watchlist/refresh', methods=['POST'])
+def api_watchlist_refresh():
+    """从当前缓存刷新自选池状态"""
+    with _lock:
+        stocks = _all_cached_stocks()
+    if not stocks:
+        return jsonify({'error': 'no scan data, please scan first'}), 400
+    updated = wl_mod.update_all_statuses(stocks)
+    return jsonify(updated)
 
 
 @app.route('/api/stock_detail')
