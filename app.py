@@ -43,6 +43,8 @@ from flask import Flask, jsonify, render_template, request
 
 import data_fetcher
 import dcf_calc
+import watchlist as wl_mod
+import strategy as strat_mod
 
 # ── 日志 ────────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -190,6 +192,12 @@ def _refresh(market: str, full_scan: bool = False):
         logger.info(f"{label} 扫描完成 右侧:{result['stats']['right_count']} "
                     f"左侧:{result['stats']['left_count']} 观望:{result['stats']['other_count']}")
 
+        # Update watchlist statuses
+        try:
+            wl_mod.update_all_statuses(stocks)
+        except Exception as e:
+            logger.warning(f"更新自选池状态失败: {e}")
+
         return stocks
 
     except Exception as e:
@@ -246,6 +254,12 @@ def _do_full_scan():
             }
         _save_cache()
         _save_to_history('a_share', result, now, close_time)
+
+        # Update watchlist statuses
+        try:
+            wl_mod.update_all_statuses(stocks)
+        except Exception as e:
+            logger.warning(f"更新自选池状态失败: {e}")
 
         with _full_scan_lock:
             _full_scan['last_run']   = now
@@ -412,6 +426,54 @@ def api_full_scan():
     t = threading.Thread(target=_do_full_scan, daemon=True)
     t.start()
     return jsonify({'status': 'started'})
+
+
+# ── 自选池路由 ────────────────────────────────────────────────────────────────
+@app.route('/api/watchlist')
+def api_watchlist():
+    return jsonify(wl_mod.get_watchlist())
+
+@app.route('/api/watchlist', methods=['POST'])
+def api_watchlist_add():
+    d = request.json or {}
+    ok = wl_mod.add_stock(d.get('code',''), d.get('name',''), d.get('market','a_share'), d.get('notes',''))
+    return jsonify({'ok': ok})
+
+@app.route('/api/watchlist/<code>', methods=['DELETE'])
+def api_watchlist_remove(code):
+    ok = wl_mod.remove_stock(code)
+    return jsonify({'ok': ok})
+
+
+# ── 策略路由 ──────────────────────────────────────────────────────────────────
+@app.route('/api/strategies')
+def api_strategies():
+    return jsonify(strat_mod.list_strategies())
+
+@app.route('/api/strategies', methods=['POST'])
+def api_strategy_create():
+    data = request.json or {}
+    s = strat_mod.create_strategy(data)
+    return jsonify(s)
+
+@app.route('/api/strategies/<sid>', methods=['DELETE'])
+def api_strategy_delete(sid):
+    ok = strat_mod.delete_strategy(sid)
+    return jsonify({'ok': ok})
+
+@app.route('/api/strategies/<sid>/run', methods=['POST'])
+def api_strategy_run(sid):
+    """Run strategy against latest scan data"""
+    market = (request.json or {}).get('market', 'a_share')
+    with _lock:
+        entry = _cache.get(market, {})
+        data = entry.get('data')
+    if not data:
+        return jsonify({'error': 'no data'}), 400
+    all_stocks = data.get('right', []) + data.get('left', []) + data.get('other', [])
+    scan_date = _now_cst().strftime('%Y-%m-%d')
+    result = strat_mod.run_on_scan(sid, all_stocks, scan_date)
+    return jsonify(result)
 
 
 # ── DCF 路由 ──────────────────────────────────────────────────────────────────

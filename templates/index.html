@@ -3,325 +3,572 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>A股/港股 左右侧筛选器</title>
+<title>A股/港股 智能选股</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 <style>
-/* ---- Reset & Base ---- */
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'SF Pro Display',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
   background:#0d1117;color:#e6edf3;min-height:100vh;font-size:14px}
 a{color:inherit;text-decoration:none}
 
-/* ---- Layout ---- */
+/* ---- Page Layout ---- */
 .page{display:flex;flex-direction:column;height:100vh;overflow:hidden}
+
+/* ---- Header ---- */
 header{flex-shrink:0;background:#161b22;border-bottom:1px solid #30363d;
-  padding:12px 20px;display:flex;align-items:center;gap:16px;flex-wrap:wrap}
-.logo{font-size:16px;font-weight:700;color:#58a6ff;white-space:nowrap}
+  padding:10px 20px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;z-index:10}
+.logo{font-size:15px;font-weight:700;color:#58a6ff;white-space:nowrap}
 .logo span{color:#f0883e}
 .mkt-tabs{display:flex;gap:4px}
-.mkt-tab{padding:5px 14px;border-radius:6px;border:1px solid #30363d;
-  background:transparent;color:#8b949e;cursor:pointer;font-size:13px;font-weight:500;transition:.15s}
+.mkt-tab{padding:4px 12px;border-radius:6px;border:1px solid #30363d;
+  background:transparent;color:#8b949e;cursor:pointer;font-size:12px;font-weight:500;transition:.15s}
 .mkt-tab.active{background:#1f6feb;border-color:#1f6feb;color:#fff}
 .mkt-tab:hover:not(.active){background:#21262d;color:#e6edf3}
-.status-bar{margin-left:auto;display:flex;align-items:center;gap:10px;font-size:12px;color:#8b949e}
+.status-bar{margin-left:auto;display:flex;align-items:center;gap:8px;font-size:12px;color:#8b949e;flex-wrap:wrap}
 .dot{width:8px;height:8px;border-radius:50%;display:inline-block}
 .dot.green{background:#3fb950;box-shadow:0 0 6px #3fb950}
 .dot.yellow{background:#d29922;animation:pulse 1s infinite}
 .dot.red{background:#f85149}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
-.btn-refresh{padding:5px 12px;border-radius:6px;border:1px solid #30363d;
+.btn{padding:4px 10px;border-radius:6px;border:1px solid #30363d;
   background:#21262d;color:#e6edf3;cursor:pointer;font-size:12px;
-  display:flex;align-items:center;gap:5px;transition:.15s}
-.btn-refresh:hover{background:#30363d}
-.btn-refresh:disabled{opacity:.5;cursor:not-allowed}
-.btn-refresh svg{transition:.3s}
-.btn-refresh.spinning svg{animation:spin .8s linear infinite}
+  display:flex;align-items:center;gap:4px;transition:.15s;white-space:nowrap}
+.btn:hover{background:#30363d}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.btn.spinning svg{animation:spin .8s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
-.btn-fullscan{padding:5px 12px;border-radius:6px;border:1px solid #238636;
-  background:#1a3a1a;color:#3fb950;cursor:pointer;font-size:12px;
-  display:flex;align-items:center;gap:5px;transition:.15s;font-weight:600}
-.btn-fullscan:hover{background:#1f4a1f}
-.btn-fullscan:disabled{opacity:.5;cursor:not-allowed}
+.btn-green{border-color:#238636;background:#1a3a1a;color:#3fb950;font-weight:600}
+.btn-green:hover{background:#1f4a1f}
+.btn-purple{border-color:#6e40c9;background:#1a1a3a;color:#d2a8ff;font-weight:600}
+.btn-purple:hover{background:#21212f}
+.history-wrap{display:flex;align-items:center;gap:5px;font-size:12px;color:#8b949e}
+.history-select{background:#21262d;border:1px solid #30363d;color:#e6edf3;
+  border-radius:6px;padding:3px 7px;font-size:12px;cursor:pointer;max-width:220px}
+.history-select:focus{outline:none;border-color:#58a6ff}
 
-/* ---- Full Scan Overlay ---- */
+/* ---- App Nav Tabs ---- */
+.app-nav{flex-shrink:0;background:#161b22;border-bottom:1px solid #21262d;
+  padding:0 20px;display:flex;gap:0}
+.app-tab{padding:9px 18px;border:none;background:transparent;color:#8b949e;
+  cursor:pointer;font-size:13px;font-weight:500;border-bottom:2px solid transparent;
+  transition:.15s;white-space:nowrap}
+.app-tab:hover{color:#e6edf3}
+.app-tab.active{color:#58a6ff;border-bottom-color:#58a6ff}
+
+/* ---- Tab Panels ---- */
+.tab-panel{display:none;flex:1;flex-direction:column;overflow:hidden;min-height:0}
+.tab-panel.active{display:flex}
+
+/* ---- Scan Overlay ---- */
 .scan-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);
   z-index:200;align-items:center;justify-content:center}
 .scan-overlay.active{display:flex}
 .scan-box{background:#161b22;border:1px solid #30363d;border-radius:12px;
   padding:32px 40px;text-align:center;min-width:320px;max-width:90vw}
-.scan-box h3{font-size:16px;font-weight:700;color:#e6edf3;margin-bottom:6px}
+.scan-box h3{font-size:16px;font-weight:700;margin-bottom:6px}
 .scan-box p{font-size:12px;color:#8b949e;margin-bottom:20px}
 .scan-progress-bar{width:100%;height:6px;background:#21262d;border-radius:3px;overflow:hidden;margin-bottom:10px}
-.scan-progress-fill{height:100%;background:linear-gradient(90deg,#238636,#3fb950);
-  border-radius:3px;transition:width .4s}
+.scan-progress-fill{height:100%;background:linear-gradient(90deg,#238636,#3fb950);border-radius:3px;transition:width .4s}
 .scan-progress-text{font-size:12px;color:#8b949e}
 .scan-last{margin-top:14px;font-size:11px;color:#8b949e;border-top:1px solid #21262d;padding-top:12px}
 
+/* ── TAB 1: SCREENING ─────────────────────────────────────── */
+
+/* Signal filter bar */
+.signal-filter-bar{flex-shrink:0;padding:7px 16px;background:#0d1117;
+  border-bottom:1px solid #21262d;display:flex;gap:5px;flex-wrap:wrap;align-items:center}
+.filter-chip{padding:3px 10px;border-radius:12px;border:1px solid #30363d;
+  background:transparent;color:#8b949e;cursor:pointer;font-size:11px;font-weight:500;
+  transition:.12s;white-space:nowrap}
+.filter-chip:hover{background:#21262d;color:#e6edf3}
+.filter-chip.active-buy{background:#1a3a1a;border-color:#238636;color:#3fb950}
+.filter-chip.active-sell{background:#3a1a1a;border-color:#da3633;color:#f85149}
+.filter-chip.active-watch{background:#1a2035;border-color:#1f6feb;color:#58a6ff}
+.filter-chip.active-value{background:#1a1a3a;border-color:#6e40c9;color:#d2a8ff}
+.filter-chip.active-all{background:#21262d;border-color:#58a6ff;color:#58a6ff}
+
+/* Stats bar */
+.stats-bar{flex-shrink:0;padding:5px 16px;background:#0d1117;border-bottom:1px solid #21262d;
+  display:flex;gap:14px;font-size:11px;color:#8b949e;flex-wrap:wrap;align-items:center}
+.stats-bar b{color:#e6edf3}
+
+/* Panels */
 .main{display:flex;flex:1;overflow:hidden;gap:0}
-.panel{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0;
-  border-right:1px solid #30363d}
+.panel{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0;border-right:1px solid #30363d}
 .panel:last-child{border-right:none}
-.panel-header{flex-shrink:0;padding:10px 16px;background:#161b22;
-  border-bottom:1px solid #30363d;display:flex;align-items:center;gap:8px}
-.panel-title{font-size:14px;font-weight:600;display:flex;align-items:center;gap:6px}
-.badge{padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600}
+.panel-header{flex-shrink:0;padding:8px 12px;background:#161b22;border-bottom:1px solid #30363d;display:flex;align-items:center;gap:7px}
+.panel-title{font-size:13px;font-weight:600;display:flex;align-items:center;gap:5px}
+.badge{padding:2px 7px;border-radius:12px;font-size:11px;font-weight:600}
 .badge.right{background:#1a3a1a;color:#3fb950;border:1px solid #238636}
 .badge.left{background:#3a1a1a;color:#f85149;border:1px solid #da3633}
 .badge.other{background:#1a2a3a;color:#58a6ff;border:1px solid #1f6feb}
-.panel-count{color:#8b949e;font-size:12px}
+.panel-count{color:#8b949e;font-size:11px}
 .sort-btns{margin-left:auto;display:flex;gap:3px}
-.sort-btns button{padding:3px 7px;border-radius:4px;border:1px solid #30363d;
+.sort-btns button{padding:2px 6px;border-radius:4px;border:1px solid #30363d;
   background:transparent;color:#8b949e;cursor:pointer;font-size:10px;transition:.12s}
 .sort-btns button:hover{background:#21262d;color:#e6edf3}
 .sort-btns button.active{background:#1f3a5a;border-color:#1f6feb;color:#58a6ff}
-.btn-dcf{padding:5px 12px;border-radius:6px;border:1px solid #6e40c9;
-  background:#1a1a3a;color:#d2a8ff;cursor:pointer;font-size:12px;
-  display:flex;align-items:center;gap:5px;transition:.15s;font-weight:600;text-decoration:none}
-.btn-dcf:hover{background:#21262d}
-
-.stock-list{flex:1;overflow-y:auto;padding:8px}
-.stock-list::-webkit-scrollbar{width:6px}
+.stock-list{flex:1;overflow-y:auto;padding:6px}
+.stock-list::-webkit-scrollbar{width:5px}
 .stock-list::-webkit-scrollbar-track{background:#0d1117}
 .stock-list::-webkit-scrollbar-thumb{background:#30363d;border-radius:3px}
 
-/* ---- Stock Card ---- */
-.stock-card{background:#161b22;border:1px solid #21262d;border-radius:8px;
-  margin-bottom:8px;overflow:hidden;transition:.15s}
+/* Stock Card */
+.stock-card{background:#161b22;border:1px solid #21262d;border-radius:8px;margin-bottom:6px;overflow:hidden;transition:.15s}
 .stock-card:hover{border-color:#30363d}
-.card-header{padding:10px 12px;display:flex;align-items:center;gap:8px;
-  cursor:pointer;user-select:none}
-.stock-code{font-size:12px;color:#8b949e;min-width:52px;font-family:monospace}
-.stock-name{font-weight:600;font-size:13px;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.stock-price{font-size:14px;font-weight:700;font-family:monospace;min-width:55px;text-align:right}
-.stock-chg{font-size:12px;font-weight:600;min-width:52px;text-align:right;font-family:monospace}
+.card-header{padding:8px 10px;display:flex;align-items:center;gap:6px;cursor:pointer;user-select:none}
+.stock-code{font-size:11px;color:#8b949e;min-width:50px;font-family:monospace}
+.stock-name{font-weight:600;font-size:12px;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.stock-price{font-size:13px;font-weight:700;font-family:monospace;min-width:52px;text-align:right}
+.stock-chg{font-size:11px;font-weight:600;min-width:50px;text-align:right;font-family:monospace}
 .up{color:#f85149}.dn{color:#3fb950}.flat{color:#8b949e}
-.mktcap{font-size:11px;color:#8b949e;white-space:nowrap}
-.side-tag{padding:2px 7px;border-radius:4px;font-size:11px;font-weight:600;
-  white-space:nowrap}
+.mktcap{font-size:10px;color:#8b949e;white-space:nowrap;min-width:45px}
+.side-tag{padding:2px 6px;border-radius:4px;font-size:10px;font-weight:600;white-space:nowrap}
 .side-tag.右侧{background:#1a3a1a;color:#3fb950}
 .side-tag.左侧{background:#3a1a1a;color:#f85149}
 .side-tag.观望{background:#1a2035;color:#58a6ff}
-.strength-tag{padding:2px 7px;border-radius:4px;font-size:10px;font-weight:700;white-space:nowrap}
-.strength-tag.buy{background:#0d2818;color:#3fb950;border:1px solid #238636}
+.strength-tag{padding:2px 6px;border-radius:4px;font-size:10px;font-weight:700;white-space:nowrap}
 .strength-tag.strong-buy{background:#1a4a1a;color:#56d364;border:1px solid #2ea043}
-.strength-tag.value{background:#1a1a3a;color:#79c0ff;border:1px solid #1f6feb}
-.strength-tag.sell{background:#3a2200;color:#f0883e;border:1px solid #9e6a03}
+.strength-tag.buy{background:#0d2818;color:#3fb950;border:1px solid #238636}
+.strength-tag.watch-buy{background:#1a3020;color:#5aad6b;border:1px solid #236b33}
 .strength-tag.strong-sell{background:#3a0a0a;color:#f85149;border:1px solid #da3633}
-.strength-tag.watch{background:#1a1a1a;color:#8b949e;border:1px solid #30363d}
-.value-tag-badge{padding:2px 7px;border-radius:4px;font-size:10px;font-weight:600;
-  white-space:nowrap;background:#1a1a3a;color:#79c0ff;border:1px solid #1f6feb}
+.strength-tag.sell{background:#3a2200;color:#f0883e;border:1px solid #9e6a03}
+.strength-tag.weak-sell{background:#2a1a0a;color:#cc8800;border:1px solid #7a5000}
+.strength-tag.pending{background:#1a2035;color:#58a6ff;border:1px solid #1f6feb}
+.strength-tag.flat{background:#1a1a1a;color:#8b949e;border:1px solid #30363d}
+.value-tag-badge{padding:2px 6px;border-radius:4px;font-size:10px;font-weight:600;
+  white-space:nowrap;background:#1a1a3a;color:#d2a8ff;border:1px solid #6e40c9}
+.btn-watchlist{padding:2px 6px;border-radius:4px;border:1px solid #30363d;
+  background:transparent;color:#8b949e;cursor:pointer;font-size:11px;transition:.12s;flex-shrink:0}
+.btn-watchlist:hover{background:#21262d;color:#f0e040}
+.btn-watchlist.in-list{color:#f0e040;border-color:#7a6a00}
 .expand-icon{color:#8b949e;transition:.2s;flex-shrink:0}
-.card-body{display:none;padding:0 12px 12px}
+.card-body{display:none;padding:0 10px 10px}
 .card-body.open{display:block}
-.card-signals{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px}
-.signal-chip{padding:2px 7px;background:#21262d;border-radius:4px;
-  font-size:11px;color:#8b949e;border:1px solid #30363d}
-.card-stats{display:flex;gap:12px;margin-bottom:8px;font-size:11px;color:#8b949e}
+.card-signals{display:flex;flex-wrap:wrap;gap:3px;margin-bottom:7px}
+.signal-chip{padding:2px 6px;background:#21262d;border-radius:4px;font-size:10px;color:#8b949e;border:1px solid #30363d}
+.card-stats{display:flex;gap:10px;margin-bottom:7px;font-size:10px;color:#8b949e;flex-wrap:wrap}
 .card-stats span b{color:#e6edf3;font-weight:600}
-.volume-bar{display:flex;align-items:center;gap:6px;margin-bottom:8px}
-.vol-label{font-size:11px;color:#8b949e;min-width:80px}
-.vol-indicator{font-size:11px;color:#58a6ff;font-weight:600}
+.volume-bar{display:flex;align-items:center;gap:5px;margin-bottom:7px}
+.vol-label{font-size:10px;color:#8b949e;min-width:75px}
+.vol-indicator{font-size:10px;color:#58a6ff;font-weight:600}
 .vol-warn{color:#f0883e}
-
-/* ---- Price History Table ---- */
-.price-table{width:100%;border-collapse:collapse;font-size:11px;font-family:monospace}
-.price-table th{text-align:right;padding:4px 6px;color:#8b949e;border-bottom:1px solid #21262d;
-  white-space:nowrap;font-weight:500}
+.price-table{width:100%;border-collapse:collapse;font-size:10px;font-family:monospace}
+.price-table th{text-align:right;padding:3px 5px;color:#8b949e;border-bottom:1px solid #21262d;white-space:nowrap;font-weight:500}
 .price-table th:first-child{text-align:left}
-.price-table td{text-align:right;padding:3px 6px;border-bottom:1px solid #161b22;
-  white-space:nowrap}
+.price-table td{text-align:right;padding:2px 5px;border-bottom:1px solid #161b22;white-space:nowrap}
 .price-table td:first-child{text-align:left;color:#8b949e}
 .price-table tr:hover td{background:#1c2128}
 .price-table tr.today td{background:#1a2035}
 
-/* ---- Loading / Empty States ---- */
-.state-msg{display:flex;flex-direction:column;align-items:center;
-  justify-content:center;height:100%;gap:12px;color:#8b949e;padding:40px}
+/* Loading */
+.state-msg{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:10px;color:#8b949e;padding:40px}
 .state-msg svg{opacity:.3}
-.progress-bar{width:200px;height:4px;background:#21262d;border-radius:2px;overflow:hidden}
+.progress-bar{width:180px;height:4px;background:#21262d;border-radius:2px;overflow:hidden}
 .progress-fill{height:100%;background:#1f6feb;border-radius:2px;transition:width .3s}
-.progress-text{font-size:12px;color:#8b949e}
+.progress-text{font-size:11px;color:#8b949e}
 
-/* ---- Stats bar ---- */
-.stats-bar{padding:6px 16px;background:#0d1117;border-bottom:1px solid #21262d;
-  display:flex;gap:16px;font-size:11px;color:#8b949e;flex-shrink:0;flex-wrap:wrap;align-items:center}
-.stats-bar b{color:#e6edf3}
+/* ── TAB 2: WATCHLIST ────────────────────────────────────── */
+.watchlist-wrap{flex:1;overflow:hidden;display:flex;flex-direction:column}
+.wl-header{flex-shrink:0;padding:10px 20px;background:#161b22;border-bottom:1px solid #30363d;
+  display:flex;align-items:center;gap:12px}
+.wl-header h2{font-size:14px;font-weight:700;color:#e6edf3}
+.wl-count{font-size:12px;color:#8b949e}
+.wl-body{flex:1;overflow-y:auto;padding:16px 20px}
+.wl-body::-webkit-scrollbar{width:5px}
+.wl-body::-webkit-scrollbar-thumb{background:#30363d;border-radius:3px}
+.wl-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;
+  height:100%;gap:14px;color:#8b949e;text-align:center}
+.wl-empty svg{opacity:.2}
+.wl-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:10px}
+.wl-card{background:#161b22;border:1px solid #21262d;border-radius:10px;padding:14px 16px;
+  position:relative;transition:.15s}
+.wl-card:hover{border-color:#30363d}
+.wl-card-top{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.wl-code{font-size:11px;color:#8b949e;font-family:monospace}
+.wl-name{font-size:13px;font-weight:700;flex:1}
+.wl-price{font-size:14px;font-weight:700;font-family:monospace}
+.wl-chg{font-size:11px;font-weight:600;font-family:monospace}
+.wl-remove{position:absolute;top:10px;right:12px;background:transparent;border:none;
+  color:#8b949e;cursor:pointer;font-size:16px;line-height:1;transition:.12s;padding:2px 5px}
+.wl-remove:hover{color:#f85149}
+.wl-tags{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:8px}
+.wl-meta{font-size:10px;color:#8b949e;display:flex;gap:12px;flex-wrap:wrap}
+.wl-meta span b{color:#e6edf3}
+.status-delta{display:inline-flex;align-items:center;gap:3px;font-size:10px;font-weight:600;
+  padding:1px 5px;border-radius:3px}
+.status-delta.improved{background:#1a3a1a;color:#3fb950}
+.status-delta.worsened{background:#3a1a1a;color:#f85149}
+.status-delta.unchanged{background:#1a1a1a;color:#8b949e}
+.wl-hist-mini{display:flex;gap:3px;margin-top:6px;flex-wrap:wrap}
+.hist-dot{width:7px;height:7px;border-radius:50%;cursor:default;flex-shrink:0}
 
-/* ---- History select ---- */
-.history-wrap{display:flex;align-items:center;gap:6px;font-size:12px;color:#8b949e}
-.history-select{background:#21262d;border:1px solid #30363d;color:#e6edf3;
-  border-radius:6px;padding:4px 8px;font-size:12px;cursor:pointer;max-width:260px}
-.history-select:focus{outline:none;border-color:#58a6ff}
+/* ── TAB 3: DCF ──────────────────────────────────────────── */
+.dcf-wrap{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px}
+.dcf-wrap iframe{width:100%;height:100%;border:none;flex:1}
+.dcf-btn-wrap{text-align:center}
+.dcf-open-btn{padding:12px 28px;border-radius:8px;border:1px solid #6e40c9;
+  background:#1a1a3a;color:#d2a8ff;cursor:pointer;font-size:14px;font-weight:600;text-decoration:none;
+  display:inline-flex;align-items:center;gap:8px;transition:.15s}
+.dcf-open-btn:hover{background:#21212f}
 
-/* ---- Toast ---- */
+/* ── TAB 4: STRATEGY ─────────────────────────────────────── */
+.strategy-layout{flex:1;display:flex;overflow:hidden;gap:0}
+.strat-sidebar{width:300px;flex-shrink:0;border-right:1px solid #30363d;display:flex;flex-direction:column;overflow:hidden}
+.strat-main{flex:1;overflow-y:auto;padding:16px 20px}
+.strat-main::-webkit-scrollbar{width:5px}
+.strat-main::-webkit-scrollbar-thumb{background:#30363d;border-radius:3px}
+.strat-form-wrap{flex-shrink:0;padding:14px;border-bottom:1px solid #21262d;overflow-y:auto}
+.strat-form-wrap::-webkit-scrollbar{width:4px}
+.strat-form-wrap::-webkit-scrollbar-thumb{background:#30363d;border-radius:2px}
+.strat-form-title{font-size:12px;font-weight:700;color:#8b949e;text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px}
+.form-row{margin-bottom:8px}
+.form-row label{display:block;font-size:11px;color:#8b949e;margin-bottom:3px}
+.form-row input,.form-row select{width:100%;padding:5px 8px;background:#21262d;border:1px solid #30363d;
+  border-radius:5px;color:#e6edf3;font-size:12px}
+.form-row input:focus,.form-row select:focus{outline:none;border-color:#58a6ff}
+.checkbox-group{display:flex;flex-wrap:wrap;gap:5px;margin-top:3px}
+.checkbox-item{display:flex;align-items:center;gap:4px;font-size:11px;color:#8b949e;cursor:pointer}
+.checkbox-item input{width:auto;margin:0}
+.strat-list{flex:1;overflow-y:auto;padding:8px}
+.strat-list::-webkit-scrollbar{width:4px}
+.strat-list::-webkit-scrollbar-thumb{background:#30363d;border-radius:2px}
+.strat-item{padding:10px 12px;border-radius:8px;border:1px solid #21262d;margin-bottom:6px;
+  cursor:pointer;transition:.15s;background:#161b22}
+.strat-item:hover{border-color:#30363d}
+.strat-item.selected{border-color:#1f6feb;background:#0d1a2d}
+.strat-item-name{font-size:12px;font-weight:600;margin-bottom:3px;display:flex;align-items:center;gap:6px}
+.strat-item-stats{font-size:10px;color:#8b949e;display:flex;gap:8px;flex-wrap:wrap}
+.strat-status{padding:2px 6px;border-radius:3px;font-size:10px;font-weight:600}
+.strat-status.active{background:#1a3a1a;color:#3fb950}
+.strat-status.liquidated{background:#3a1a1a;color:#f85149}
+.strat-status.paused{background:#1a2035;color:#8b949e}
+.strat-detail-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;height:300px;gap:10px;color:#8b949e;text-align:center}
+.strat-detail-header{display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap}
+.strat-detail-name{font-size:16px;font-weight:700}
+.strat-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px}
+.kpi-card{background:#161b22;border:1px solid #21262d;border-radius:8px;padding:12px;text-align:center}
+.kpi-label{font-size:10px;color:#8b949e;margin-bottom:4px}
+.kpi-value{font-size:18px;font-weight:700;font-family:monospace}
+.strat-section{margin-bottom:20px}
+.strat-section-title{font-size:12px;font-weight:600;color:#8b949e;text-transform:uppercase;
+  letter-spacing:.5px;margin-bottom:8px;padding-bottom:5px;border-bottom:1px solid #21262d}
+.chart-wrap{background:#161b22;border:1px solid #21262d;border-radius:8px;padding:12px;height:200px}
+.mini-table{width:100%;border-collapse:collapse;font-size:11px}
+.mini-table th{text-align:left;padding:5px 8px;color:#8b949e;border-bottom:1px solid #21262d;font-weight:500;font-size:10px;text-transform:uppercase}
+.mini-table td{padding:5px 8px;border-bottom:1px solid #161b22;vertical-align:middle}
+.mini-table tr:hover td{background:#1c2128}
+.action-buy{color:#3fb950;font-size:10px;font-weight:600}
+.action-sell{color:#f85149;font-size:10px;font-weight:600}
+.pos-pnl-pos{color:#3fb950;font-size:10px;font-weight:600}
+.pos-pnl-neg{color:#f85149;font-size:10px;font-weight:600}
+.run-btn{padding:6px 14px;border-radius:6px;border:1px solid #238636;background:#1a3a1a;
+  color:#3fb950;cursor:pointer;font-size:12px;font-weight:600;transition:.15s;margin-right:8px}
+.run-btn:hover{background:#1f4a1f}
+.run-btn:disabled{opacity:.5;cursor:not-allowed}
+.del-btn{padding:6px 12px;border-radius:6px;border:1px solid #da3633;background:#3a1a1a;
+  color:#f85149;cursor:pointer;font-size:12px;transition:.15s}
+.del-btn:hover{background:#4a2020}
+.no-data-row td{color:#8b949e;font-style:italic;text-align:center;padding:16px}
+
+/* ── Toast ──────────────────────────────────────────────── */
 .toast{position:fixed;bottom:28px;left:50%;transform:translateX(-50%);
-  background:#238636;color:#fff;padding:9px 20px;border-radius:8px;font-size:13px;
-  font-weight:500;z-index:999;opacity:0;transition:opacity .25s;pointer-events:none;
-  white-space:nowrap}
+  background:#238636;color:#fff;padding:8px 18px;border-radius:8px;font-size:13px;
+  font-weight:500;z-index:999;opacity:0;transition:opacity .25s;pointer-events:none;white-space:nowrap}
 .toast.show{opacity:1}
 .toast.warn{background:#9e6a03}
+.toast.error{background:#da3633}
 
 @media(max-width:900px){
   .main{flex-direction:column}
-  .panel{border-right:none;border-bottom:1px solid #30363d;min-height:300px}
+  .panel{border-right:none;border-bottom:1px solid #30363d;min-height:280px}
+  .strategy-layout{flex-direction:column}
+  .strat-sidebar{width:100%;height:320px;border-right:none;border-bottom:1px solid #30363d}
+  .strat-kpis{grid-template-columns:repeat(2,1fr)}
 }
 </style>
 </head>
 <body>
 <div class="page">
 
-<!-- ── Header ─────────────────────────────────────────────── -->
+<!-- ── Header ──────────────────────────────────────────────── -->
 <header>
-  <div class="logo">股票筛选器 <span>⬡</span></div>
-
+  <div class="logo">智能选股 <span>⬡</span></div>
   <div class="mkt-tabs">
     <button class="mkt-tab active" data-mkt="a_share">A股</button>
     <button class="mkt-tab" data-mkt="hk">港股</button>
   </div>
-
   <div class="status-bar">
     <span id="statusDot" class="dot red"></span>
     <span id="statusText">未加载</span>
-    <span id="lastUpdate" style="color:#8b949e"></span>
+    <span id="lastUpdate" style="color:#8b949e;font-size:11px"></span>
     <div class="history-wrap">
       <select id="historySelect" class="history-select" onchange="loadSnapshot(this.value)" style="display:none">
         <option value="">── 历史快照 ──</option>
       </select>
     </div>
-    <button class="btn-refresh" id="btnRefresh" onclick="triggerScan()">
-      <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor">
+    <button class="btn" id="btnRefresh" onclick="triggerScan()">
+      <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
         <path d="M1.705 8a6.3 6.3 0 0 1 11.91-2.205L11 7h5V2l-1.957 1.957A7.8 7.8 0 0 0 .2 8.5l1.5.1A6.3 6.3 0 0 1 1.705 8Zm12.59 0A6.3 6.3 0 0 1 2.385 10.205L5 9H0v5l1.957-1.957A7.8 7.8 0 0 0 15.8 7.5l-1.5-.1A6.3 6.3 0 0 1 14.295 8Z"/>
-      </svg>
-      扫描
+      </svg>扫描
     </button>
-    <button class="btn-fullscan" id="btnFullScan" onclick="triggerFullScan()" title="扫描全市场A股，找出所有符合条件的股票并保存">
-      ⚡ 全量扫描
-    </button>
-    <a class="btn-dcf" href="/dcf" title="DCF内在价值估算">
-      <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor">
-        <path d="M0 11.5a.5.5 0 0 1 .5-.5h2a.5.5 0 0 1 0 1h-2a.5.5 0 0 1-.5-.5zm0-4a.5.5 0 0 1 .5-.5h5a.5.5 0 0 1 0 1h-5a.5.5 0 0 1-.5-.5zm0-4a.5.5 0 0 1 .5-.5h9a.5.5 0 0 1 0 1h-9a.5.5 0 0 1-.5-.5zm10.38 8.964l3.953-3.953a.25.25 0 0 0 0-.354l-1.06-1.06a.25.25 0 0 0-.354 0l-3.953 3.952V14h1.414zM10 11.06l-1.5 1.5V14h1.5V11.06z"/>
-      </svg>
-      DCF 估值
-    </a>
+    <button class="btn btn-green" id="btnFullScan" onclick="triggerFullScan()">⚡ 全量扫描</button>
   </div>
 </header>
 
-<!-- ── 全量扫描弹窗 ──────────────────────────────────────── -->
+<!-- ── App Nav Tabs ─────────────────────────────────────────── -->
+<div class="app-nav">
+  <button class="app-tab active" onclick="switchTab('screening')">📊 股票筛选</button>
+  <button class="app-tab" onclick="switchTab('watchlist')">⭐ 自选池 <span id="wlNavCount" style="font-size:10px;color:#8b949e"></span></button>
+  <button class="app-tab" onclick="switchTab('dcf')">📐 DCF估值</button>
+  <button class="app-tab" onclick="switchTab('strategy')">🎯 模拟策略</button>
+</div>
+
+<!-- ── Full Scan Overlay ────────────────────────────────────── -->
 <div class="scan-overlay" id="scanOverlay">
   <div class="scan-box">
     <h3>⚡ 全量扫描进行中</h3>
-    <p>正在扫描全市场A股（约需 10~30 分钟）<br>完成后结果自动保存，下次刷新将包含这些股票</p>
-    <div class="scan-progress-bar">
-      <div class="scan-progress-fill" id="scanProgFill" style="width:0%"></div>
-    </div>
+    <p>正在扫描全市场A股（约需 10~30 分钟）<br>完成后结果自动保存</p>
+    <div class="scan-progress-bar"><div class="scan-progress-fill" id="scanProgFill" style="width:0%"></div></div>
     <div class="scan-progress-text" id="scanProgText">准备中...</div>
     <div class="scan-last" id="scanLast" style="display:none"></div>
   </div>
 </div>
 
-<!-- ── Stats Bar ────────────────────────────────────────────── -->
-<div class="stats-bar" id="statsBar" style="display:none">
-  筛选条件：市值&gt;100亿（CSI800代理）&nbsp;|&nbsp; 30日均成交额&gt;1亿
-  &nbsp;|&nbsp; 总计 <b id="statTotal">0</b> 只
-  &nbsp;|&nbsp; <span style="color:#3fb950">右侧 <b id="statRight">0</b></span>
-  &nbsp;|&nbsp; <span style="color:#f85149">左侧 <b id="statLeft">0</b></span>
-  &nbsp;|&nbsp; <span style="color:#58a6ff">观望 <b id="statOther">0</b></span>
+<!-- ══════════════ TAB 1: 股票筛选 ══════════════ -->
+<div class="tab-panel active" id="tab-screening">
+
+  <!-- Signal filter bar -->
+  <div class="signal-filter-bar">
+    <span style="font-size:11px;color:#8b949e;margin-right:3px">信号筛选：</span>
+    <button class="filter-chip active-all" data-signal="all" onclick="setSignalFilter(this,'all')">全部</button>
+    <button class="filter-chip" data-signal="⚡强烈买入" onclick="setSignalFilter(this,'⚡强烈买入')">⚡强烈买入</button>
+    <button class="filter-chip" data-signal="✅买入" onclick="setSignalFilter(this,'✅买入')">✅买入</button>
+    <button class="filter-chip" data-signal="📈关注买入" onclick="setSignalFilter(this,'📈关注买入')">📈关注买入</button>
+    <button class="filter-chip" data-signal="💎价值空间" onclick="setSignalFilter(this,'💎价值空间')">💎价值空间</button>
+    <button class="filter-chip" data-signal="😴横盘观望" onclick="setSignalFilter(this,'😴横盘观望')">😴横盘观望</button>
+    <button class="filter-chip" data-signal="🔍待确认" onclick="setSignalFilter(this,'🔍待确认')">🔍待确认</button>
+    <button class="filter-chip" data-signal="🔻弱势关注" onclick="setSignalFilter(this,'🔻弱势关注')">🔻弱势关注</button>
+    <button class="filter-chip" data-signal="⚠️卖出观察" onclick="setSignalFilter(this,'⚠️卖出观察')">⚠️卖出观察</button>
+    <button class="filter-chip" data-signal="🔴强烈卖出" onclick="setSignalFilter(this,'🔴强烈卖出')">🔴强烈卖出</button>
+  </div>
+
+  <!-- Stats bar -->
+  <div class="stats-bar" id="statsBar" style="display:none">
+    筛选：市值&gt;100亿 | 30日均成交额&gt;1亿
+    &nbsp;|&nbsp; 共 <b id="statTotal">0</b> 只
+    &nbsp;|&nbsp; <span style="color:#3fb950">右侧 <b id="statRight">0</b></span>
+    &nbsp;|&nbsp; <span style="color:#f85149">左侧 <b id="statLeft">0</b></span>
+    &nbsp;|&nbsp; <span style="color:#58a6ff">观望 <b id="statOther">0</b></span>
+    &nbsp;|&nbsp; <span id="filterInfo" style="color:#d2a8ff"></span>
+  </div>
+
+  <!-- 3 Panels -->
+  <div class="main">
+    <!-- 右侧 Panel -->
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-title"><span class="badge right">右侧</span>趋势确认</div>
+        <span class="panel-count" id="rightCount">— 只</span>
+        <div class="sort-btns" id="rightSortBtns">
+          <button onclick="sortPanel('right','score')" class="active" data-key="score">得分</button>
+          <button onclick="sortPanel('right','chg_desc')" data-key="chg_desc">涨↓</button>
+          <button onclick="sortPanel('right','chg_asc')" data-key="chg_asc">涨↑</button>
+          <button onclick="sortPanel('right','vol')" data-key="vol">成交</button>
+        </div>
+      </div>
+      <div class="stock-list" id="rightList">
+        <div class="state-msg" id="rightMsg">
+          <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+          <div>等待数据加载…</div>
+          <div class="progress-bar"><div class="progress-fill" id="rightProg" style="width:0%"></div></div>
+          <div class="progress-text" id="rightProgText"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 左侧 Panel -->
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-title"><span class="badge left">左侧</span>超跌关注</div>
+        <span class="panel-count" id="leftCount">— 只</span>
+        <div class="sort-btns" id="leftSortBtns">
+          <button onclick="sortPanel('left','score')" class="active" data-key="score">得分</button>
+          <button onclick="sortPanel('left','chg_desc')" data-key="chg_desc">涨↓</button>
+          <button onclick="sortPanel('left','chg_asc')" data-key="chg_asc">涨↑</button>
+          <button onclick="sortPanel('left','vol')" data-key="vol">成交</button>
+        </div>
+      </div>
+      <div class="stock-list" id="leftList">
+        <div class="state-msg" id="leftMsg">
+          <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+          <div>等待数据加载…</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 观望 Panel -->
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-title"><span class="badge other">观望</span>方向待定</div>
+        <span class="panel-count" id="otherCount">— 只</span>
+        <div class="sort-btns" id="otherSortBtns">
+          <button onclick="sortPanel('other','vol')" class="active" data-key="vol">成交</button>
+          <button onclick="sortPanel('other','chg_desc')" data-key="chg_desc">涨↓</button>
+          <button onclick="sortPanel('other','chg_asc')" data-key="chg_asc">涨↑</button>
+        </div>
+      </div>
+      <div class="stock-list" id="otherList">
+        <div class="state-msg" id="otherMsg">
+          <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+          <div>等待数据加载…</div>
+        </div>
+      </div>
+    </div>
+  </div>
 </div>
 
-<!-- ── Main ─────────────────────────────────────────────────── -->
-<div class="main">
-
-  <!-- 右侧 Panel -->
-  <div class="panel">
-    <div class="panel-header">
-      <div class="panel-title">
-        <span class="badge right">右侧</span>
-        趋势确认上涨
-      </div>
-      <span class="panel-count" id="rightCount">— 只</span>
-      <div class="sort-btns" id="rightSortBtns">
-        <button onclick="sortPanel('right','score')" class="active" data-key="score">得分</button>
-        <button onclick="sortPanel('right','chg_desc')" data-key="chg_desc">涨幅↓</button>
-        <button onclick="sortPanel('right','chg_asc')" data-key="chg_asc">涨幅↑</button>
-        <button onclick="sortPanel('right','vol')" data-key="vol">成交额</button>
-      </div>
+<!-- ══════════════ TAB 2: 自选池 ══════════════ -->
+<div class="tab-panel" id="tab-watchlist">
+  <div class="watchlist-wrap">
+    <div class="wl-header">
+      <h2>⭐ 自选池</h2>
+      <span class="wl-count" id="wlCount">0 只</span>
+      <span style="font-size:11px;color:#8b949e;margin-left:8px">（下次扫描时自动更新状态）</span>
     </div>
-    <div class="stock-list" id="rightList">
-      <div class="state-msg" id="rightMsg">
-        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-          <circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>
+    <div class="wl-body" id="wlBody">
+      <div class="wl-empty" id="wlEmpty">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2">
+          <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
         </svg>
-        <div>等待数据加载…</div>
-        <div class="progress-bar"><div class="progress-fill" id="rightProg" style="width:0%"></div></div>
-        <div class="progress-text" id="rightProgText"></div>
+        <div>自选池为空</div>
+        <div style="font-size:12px">在股票筛选中点击 ⭐ 按钮添加股票</div>
       </div>
+      <div class="wl-grid" id="wlGrid" style="display:none"></div>
     </div>
   </div>
-
-  <!-- 左侧 Panel -->
-  <div class="panel">
-    <div class="panel-header">
-      <div class="panel-title">
-        <span class="badge left">左侧</span>
-        超跌触底反弹
-      </div>
-      <span class="panel-count" id="leftCount">— 只</span>
-      <div class="sort-btns" id="leftSortBtns">
-        <button onclick="sortPanel('left','score')" class="active" data-key="score">得分</button>
-        <button onclick="sortPanel('left','chg_desc')" data-key="chg_desc">涨幅↓</button>
-        <button onclick="sortPanel('left','chg_asc')" data-key="chg_asc">涨幅↑</button>
-        <button onclick="sortPanel('left','vol')" data-key="vol">成交额</button>
-      </div>
-    </div>
-    <div class="stock-list" id="leftList">
-      <div class="state-msg" id="leftMsg">
-        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-          <circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>
-        </svg>
-        <div>等待数据加载…</div>
-      </div>
-    </div>
-  </div>
-
-  <!-- 观望 Panel -->
-  <div class="panel">
-    <div class="panel-header">
-      <div class="panel-title">
-        <span class="badge other">观望</span>
-        方向不明（成交前30）
-      </div>
-      <span class="panel-count" id="otherCount">— 只</span>
-      <div class="sort-btns" id="otherSortBtns">
-        <button onclick="sortPanel('other','vol')" class="active" data-key="vol">成交额</button>
-        <button onclick="sortPanel('other','chg_desc')" data-key="chg_desc">涨幅↓</button>
-        <button onclick="sortPanel('other','chg_asc')" data-key="chg_asc">涨幅↑</button>
-      </div>
-    </div>
-    <div class="stock-list" id="otherList">
-      <div class="state-msg" id="otherMsg">
-        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-          <circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>
-        </svg>
-        <div>等待数据加载…</div>
-      </div>
-    </div>
-  </div>
-
 </div>
+
+<!-- ══════════════ TAB 3: DCF估值 ══════════════ -->
+<div class="tab-panel" id="tab-dcf">
+  <iframe src="/dcf" id="dcfFrame" style="flex:1;border:none;width:100%;height:100%"></iframe>
+</div>
+
+<!-- ══════════════ TAB 4: 模拟策略 ══════════════ -->
+<div class="tab-panel" id="tab-strategy">
+  <div class="strategy-layout">
+
+    <!-- Sidebar: form + list -->
+    <div class="strat-sidebar">
+      <div class="strat-form-wrap">
+        <div class="strat-form-title">创建新策略</div>
+        <div class="form-row">
+          <label>策略名称</label>
+          <input type="text" id="stratName" placeholder="我的策略" maxlength="20"/>
+        </div>
+        <div class="form-row">
+          <label>策略类型</label>
+          <select id="stratType" onchange="onStratTypeChange()">
+            <option value="right_momentum">右侧动量策略</option>
+            <option value="left_value">左侧价值策略</option>
+            <option value="rsi_reversal">RSI超跌反弹</option>
+            <option value="custom">自定义</option>
+          </select>
+        </div>
+        <div class="form-row">
+          <label>初始资金（元）</label>
+          <input type="number" id="stratCapital" value="1000000" min="10000" step="10000"/>
+        </div>
+        <div class="form-row">
+          <label>最大持仓数</label>
+          <input type="number" id="stratMaxPos" value="10" min="1" max="50"/>
+        </div>
+        <div class="form-row">
+          <label>入场信号（满足任一即买入）</label>
+          <div class="checkbox-group" id="entrySignals">
+            <label class="checkbox-item"><input type="checkbox" value="⚡强烈买入" checked> ⚡强烈买入</label>
+            <label class="checkbox-item"><input type="checkbox" value="✅买入" checked> ✅买入</label>
+            <label class="checkbox-item"><input type="checkbox" value="📈关注买入"> 📈关注买入</label>
+            <label class="checkbox-item"><input type="checkbox" value="💎价值空间"> 💎价值空间</label>
+            <label class="checkbox-item"><input type="checkbox" value="🔴强烈卖出"> 🔴强烈卖出</label>
+            <label class="checkbox-item"><input type="checkbox" value="⚠️卖出观察"> ⚠️卖出观察</label>
+          </div>
+        </div>
+        <div class="form-row">
+          <label>离场信号（满足任一即卖出）</label>
+          <div class="checkbox-group" id="exitSignals">
+            <label class="checkbox-item"><input type="checkbox" value="🔴强烈卖出" checked> 🔴强烈卖出</label>
+            <label class="checkbox-item"><input type="checkbox" value="⚠️卖出观察" checked> ⚠️卖出观察</label>
+            <label class="checkbox-item"><input type="checkbox" value="🔻弱势关注"> 🔻弱势关注</label>
+            <label class="checkbox-item"><input type="checkbox" value="⚡强烈买入"> ⚡强烈买入</label>
+          </div>
+        </div>
+        <div class="form-row" style="display:flex;gap:8px">
+          <div style="flex:1">
+            <label>单仓止损%</label>
+            <input type="number" id="stratPosStop" value="-10" max="0" step="1"/>
+          </div>
+          <div style="flex:1">
+            <label>组合止损%</label>
+            <input type="number" id="stratPortStop" value="-20" max="0" step="1"/>
+          </div>
+        </div>
+        <button onclick="createStrategy()" style="width:100%;padding:7px;border-radius:6px;border:1px solid #238636;background:#1a3a1a;color:#3fb950;cursor:pointer;font-size:12px;font-weight:600;transition:.15s" onmouseover="this.style.background='#1f4a1f'" onmouseout="this.style.background='#1a3a1a'">＋ 创建策略</button>
+      </div>
+      <div style="padding:8px 10px 4px;font-size:10px;color:#8b949e;font-weight:600;text-transform:uppercase;letter-spacing:.5px">策略列表</div>
+      <div class="strat-list" id="stratList">
+        <div style="padding:20px;text-align:center;color:#8b949e;font-size:12px">暂无策略</div>
+      </div>
+    </div>
+
+    <!-- Main: strategy detail -->
+    <div class="strat-main" id="stratMain">
+      <div class="strat-detail-empty">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" style="opacity:.2">
+          <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
+        </svg>
+        <div>从左侧选择策略查看详情</div>
+        <div style="font-size:12px;color:#6e7681">或创建一个新策略开始模拟</div>
+      </div>
+    </div>
+  </div>
 </div>
 
 <!-- Toast -->
 <div id="toast" class="toast"></div>
 
 <script>
-let currentMarket = 'a_share';
-let pollTimer = null;
-let statusTimer = null;
-let scanHistoryCache = {};   // market -> [{scan_time, label, stats, ...}]
-let stocksData = {right: [], left: [], other: []};
+// ══════════════════════════════════════════════
+// Global State
+// ══════════════════════════════════════════════
+let currentMarket   = 'a_share';
+let pollTimer       = null;
+let activeSignalFilter = 'all';
+let stocksData      = {right: [], left: [], other: []};
+let scanHistoryCache = {};
+let watchlistCodes  = new Set();   // codes in watchlist for quick lookup
+let selectedStratId = null;
+let navChartInst    = null;
 
-// ── Market Tab ──────────────────────────────────────────────
+// ══════════════════════════════════════════════
+// Tab Navigation
+// ══════════════════════════════════════════════
+function switchTab(tabId) {
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.app-tab').forEach(b => b.classList.remove('active'));
+  document.getElementById('tab-' + tabId).classList.add('active');
+  const tabs = document.querySelectorAll('.app-tab');
+  const map = {screening:0, watchlist:1, dcf:2, strategy:3};
+  if (map[tabId] !== undefined) tabs[map[tabId]].classList.add('active');
+  if (tabId === 'watchlist') loadWatchlist();
+  if (tabId === 'strategy')  loadStrategies();
+}
+
+// ══════════════════════════════════════════════
+// Market Tab
+// ══════════════════════════════════════════════
 document.querySelectorAll('.mkt-tab').forEach(btn => {
-  btn.addEventListener('click', () => {
+  btn.addEventListener('click', async () => {
     document.querySelectorAll('.mkt-tab').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     currentMarket = btn.dataset.mkt;
@@ -332,35 +579,99 @@ document.querySelectorAll('.mkt-tab').forEach(btn => {
   });
 });
 
-// ── Helpers ─────────────────────────────────────────────────
-function fmt(v, d=2){ return typeof v==='number' ? v.toFixed(d) : (v||'—') }
-function chgClass(v){ return v > 0 ? 'up' : v < 0 ? 'dn' : 'flat' }
-function chgStr(v){ return v > 0 ? '+'+fmt(v)+'%' : fmt(v)+'%' }
-function fmtAmt(yi){
-  if(yi >= 100) return (yi/100).toFixed(1)+'百亿';
-  return yi.toFixed(2)+'亿';
+// ══════════════════════════════════════════════
+// Helpers
+// ══════════════════════════════════════════════
+function fmt(v, d) {
+  d = d == null ? 2 : d;
+  return typeof v === 'number' && isFinite(v) ? v.toFixed(d) : (v != null ? v : '—');
 }
-
+function chgClass(v) { return v > 0 ? 'up' : v < 0 ? 'dn' : 'flat'; }
+function chgStr(v) {
+  if (v == null || !isFinite(v)) return '—';
+  return v > 0 ? '+' + v.toFixed(2) + '%' : v.toFixed(2) + '%';
+}
+function fmtAmt(yi) {
+  if (yi == null || !isFinite(yi)) return '—';
+  if (yi >= 100) return (yi / 100).toFixed(1) + '百亿';
+  return yi.toFixed(2) + '亿';
+}
+function fmtMktCap(yi) {
+  if (yi == null || !isFinite(yi)) return '—';
+  if (yi >= 10000) return (yi / 10000).toFixed(1) + '万亿';
+  return yi.toFixed(0) + '亿';
+}
 function strengthClass(s) {
-  if(!s) return 'watch';
-  if(s.includes('强烈买入')) return 'strong-buy';
-  if(s.includes('买入')) return 'buy';
-  if(s.includes('价值')) return 'value';
-  if(s.includes('强烈卖出')) return 'strong-sell';
-  if(s.includes('卖出')) return 'sell';
-  return 'watch';
+  if (!s) return 'flat';
+  if (s.includes('强烈买入')) return 'strong-buy';
+  if (s.includes('✅买入'))   return 'buy';
+  if (s.includes('关注买入')) return 'watch-buy';
+  if (s.includes('强烈卖出')) return 'strong-sell';
+  if (s.includes('卖出观察')) return 'sell';
+  if (s.includes('弱势关注')) return 'weak-sell';
+  if (s.includes('待确认'))   return 'pending';
+  if (s.includes('价值'))     return 'pending';
+  return 'flat';
 }
 
-// ── Render Stock Card ────────────────────────────────────────
+// ══════════════════════════════════════════════
+// Signal Filter
+// ══════════════════════════════════════════════
+function setSignalFilter(btn, signal) {
+  document.querySelectorAll('.filter-chip').forEach(c => {
+    c.className = 'filter-chip';  // reset
+  });
+  activeSignalFilter = signal;
+  // Apply active class based on type
+  if (signal === 'all') {
+    btn.classList.add('active-all');
+  } else if (['⚡强烈买入','✅买入','📈关注买入'].includes(signal)) {
+    btn.classList.add('active-buy');
+  } else if (['🔴强烈卖出','⚠️卖出观察','🔻弱势关注'].includes(signal)) {
+    btn.classList.add('active-sell');
+  } else if (signal === '💎价值空间') {
+    btn.classList.add('active-value');
+  } else {
+    btn.classList.add('active-watch');
+  }
+  // Update filter info
+  const fi = document.getElementById('filterInfo');
+  if (fi) fi.textContent = signal !== 'all' ? '已筛选：' + signal : '';
+  // Re-render
+  redrawPanels();
+}
+
+function filterStocks(stocks) {
+  if (activeSignalFilter === 'all') return stocks;
+  if (activeSignalFilter === '💎价值空间') {
+    return stocks.filter(s => s.value_tag && s.value_tag.includes('价值空间'));
+  }
+  return stocks.filter(s => (s.signal_strength || '') === activeSignalFilter);
+}
+
+function redrawPanels() {
+  const right = filterStocks(stocksData.right);
+  const left  = filterStocks(stocksData.left);
+  const other = filterStocks(stocksData.other);
+  renderList('rightList','rightMsg','rightCount', right, '暂无右侧信号股票');
+  renderList('leftList', 'leftMsg', 'leftCount',  left,  '暂无左侧信号股票');
+  renderList('otherList','otherMsg','otherCount',  other, '暂无观望股票');
+}
+
+// ══════════════════════════════════════════════
+// Render Stock Card
+// ══════════════════════════════════════════════
 function renderCard(s) {
   const cc = chgClass(s.change_pct);
-  const isHighVol = s.avg_amt_yi >= 1; // ≥ 1亿 推荐
+  const mkt = (s.market || '').replace(/\W/g, '');
+  const id = 'card-' + mkt + '-' + (s.code || '').replace(/\W/g, '');
+  const inWl = watchlistCodes.has(s.code);
 
   const histRows = (s.history || []).map((h, i) => {
     const hcc = chgClass(h.change_pct);
     const isToday = i === (s.history.length - 1);
     return `<tr class="${isToday?'today':''}">
-      <td>${h.date}</td>
+      <td>${h.date||''}</td>
       <td>${fmt(h.open,3)}</td>
       <td><b class="${hcc}">${fmt(h.close,3)}</b></td>
       <td>${fmt(h.high,3)}</td>
@@ -375,30 +686,31 @@ function renderCard(s) {
   ).join('');
 
   const scoreInfo = s.side === '右侧'
-    ? `右侧评分 <b>${s.right_score}</b>/6`
+    ? `右侧 <b>${s.right_score}</b>/7`
     : s.side === '左侧'
-    ? `左侧评分 <b>${s.left_score}</b>/6`
-    : `右:${s.right_score} 左:${s.left_score}`;
+    ? `左侧 <b>${s.left_score}</b>/7`
+    : `右:${s.right_score||0} 左:${s.left_score||0}`;
 
-  const id = `card-${s.market.replace(/\W/g,'')}-${s.code}`;
-  const mktcapStr = s.market_cap_yi != null
-    ? (s.market_cap_yi >= 10000 ? (s.market_cap_yi/10000).toFixed(1)+'万亿' : s.market_cap_yi.toFixed(0)+'亿')
-    : '—';
   const strengthTag = s.signal_strength
     ? `<span class="strength-tag ${strengthClass(s.signal_strength)}">${s.signal_strength}</span>` : '';
   const valueTagHtml = s.value_tag
     ? `<span class="value-tag-badge">${s.value_tag}</span>` : '';
 
-  return `<div class="stock-card">
+  const wlBtn = `<button class="btn-watchlist${inWl?' in-list':''}"
+    onclick="event.stopPropagation();toggleWatchlist('${s.code}','${(s.name||'').replace(/'/g,"\\'")}','${s.market||currentMarket}')"
+    title="${inWl?'从自选池移除':'加入自选池'}">${inWl?'★':'☆'}</button>`;
+
+  return `<div class="stock-card" id="sc-${s.code}">
   <div class="card-header" onclick="toggleCard('${id}')">
-    <span class="stock-code">${s.code}</span>
-    <span class="stock-name">${s.name}</span>
-    <span class="mktcap">${mktcapStr}</span>
+    <span class="stock-code">${s.code||''}</span>
+    <span class="stock-name" title="${s.name||''}">${s.name||s.code||''}</span>
+    <span class="mktcap">${fmtMktCap(s.market_cap_yi)}</span>
     <span class="stock-price ${cc}">${fmt(s.current_price,3)}</span>
     <span class="stock-chg ${cc}">${chgStr(s.change_pct)}</span>
-    <span class="side-tag ${s.side}">${s.side}</span>
+    <span class="side-tag ${s.side||''}">${s.side||''}</span>
     ${strengthTag}
-    <svg class="expand-icon" id="icon-${id}" width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+    ${wlBtn}
+    <svg class="expand-icon" id="icon-${id}" width="11" height="11" viewBox="0 0 16 16" fill="currentColor">
       <path d="M1.646 4.646a.5.5 0 0 1 .708 0L8 10.293l5.646-5.647a.5.5 0 0 1 .708.708l-6 6a.5.5 0 0 1-.708 0l-6-6a.5.5 0 0 1 0-.708z"/>
     </svg>
   </div>
@@ -408,19 +720,17 @@ function renderCard(s) {
       <span>MA5:<b>${fmt(s.ma5,3)}</b></span>
       <span>MA10:<b>${fmt(s.ma10,3)}</b></span>
       <span>MA20:<b>${fmt(s.ma20,3)}</b></span>
-      <span>RSI(14):<b>${fmt(s.rsi14,1)}</b></span>
-      <span>30日位置:<b>${s.price_position}%</b></span>
+      <span>RSI:<b>${fmt(s.rsi14,1)}</b></span>
+      <span>30日位置:<b>${s.price_position||0}%</b></span>
       <span>${scoreInfo}</span>
     </div>
     <div class="volume-bar">
-      <span class="vol-label">30日均成交额：</span>
-      <span class="vol-indicator ${isHighVol?'':'vol-warn'}">${fmtAmt(s.avg_amt_yi)} ${isHighVol?'✓ 充裕':'⚠ 偏低'}</span>
+      <span class="vol-label">30日均成交：</span>
+      <span class="vol-indicator ${s.avg_amt_yi>=1?'':'vol-warn'}">${fmtAmt(s.avg_amt_yi)} ${s.avg_amt_yi>=1?'✓':'⚠'}</span>
     </div>
     <table class="price-table">
-      <thead><tr>
-        <th>日期</th><th>开盘</th><th>收盘</th><th>最高</th><th>最低</th><th>涨跌幅</th><th>成交额</th>
-      </tr></thead>
-      <tbody>${histRows}</tbody>
+      <thead><tr><th>日期</th><th>开盘</th><th>收盘</th><th>最高</th><th>最低</th><th>涨跌%</th><th>成交额</th></tr></thead>
+      <tbody>${histRows||'<tr><td colspan="7" style="color:#8b949e;text-align:center;padding:8px">暂无历史数据</td></tr>'}</tbody>
     </table>
   </div>
 </div>`;
@@ -428,13 +738,15 @@ function renderCard(s) {
 
 function toggleCard(id) {
   const body = document.getElementById(id);
-  const icon = document.getElementById('icon-'+id);
-  if(!body) return;
+  const icon = document.getElementById('icon-' + id);
+  if (!body) return;
   const open = body.classList.toggle('open');
-  if(icon) icon.style.transform = open ? 'rotate(180deg)' : '';
+  if (icon) icon.style.transform = open ? 'rotate(180deg)' : '';
 }
 
-// ── Render Lists ─────────────────────────────────────────────
+// ══════════════════════════════════════════════
+// Render Lists
+// ══════════════════════════════════════════════
 function renderList(listId, msgId, countId, stocks, emptyText) {
   const list = document.getElementById(listId);
   const msg  = document.getElementById(msgId);
@@ -442,20 +754,16 @@ function renderList(listId, msgId, countId, stocks, emptyText) {
   if (!list) return;
 
   cnt.textContent = stocks.length + ' 只';
-
   if (stocks.length === 0) {
     msg.style.display = 'flex';
-    msg.innerHTML = `<svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+    msg.innerHTML = `<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
       <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
     </svg><div>${emptyText}</div>`;
-    // Remove old cards
-    [...list.children].forEach(c => { if(c !== msg) c.remove(); });
+    [...list.children].forEach(c => { if (c !== msg) c.remove(); });
     return;
   }
-
   msg.style.display = 'none';
-  [...list.children].forEach(c => { if(c !== msg) c.remove(); });
-
+  [...list.children].forEach(c => { if (c !== msg) c.remove(); });
   const frag = document.createDocumentFragment();
   stocks.forEach(s => {
     const div = document.createElement('div');
@@ -465,29 +773,29 @@ function renderList(listId, msgId, countId, stocks, emptyText) {
   list.appendChild(frag);
 }
 
-// ── Status Update ────────────────────────────────────────────
+// ══════════════════════════════════════════════
+// Status / Poll
+// ══════════════════════════════════════════════
 function setStatus(state, text, lastUpdate) {
-  const dot  = document.getElementById('statusDot');
-  const txt  = document.getElementById('statusText');
-  const upd  = document.getElementById('lastUpdate');
+  const dot = document.getElementById('statusDot');
+  const txt = document.getElementById('statusText');
+  const upd = document.getElementById('lastUpdate');
   dot.className = 'dot ' + (state==='ready'?'green':state==='loading'?'yellow':'red');
   txt.textContent = text;
-  upd.textContent = lastUpdate ? '更新于 '+lastUpdate : '';
+  upd.textContent = lastUpdate ? '更新于 ' + lastUpdate : '';
 }
 
 function clearAll() {
   ['rightList','leftList','otherList'].forEach(id => {
     const el = document.getElementById(id);
-    if(!el) return;
-    [...el.children].forEach(c => {
-      if(!c.id.endsWith('Msg')) c.remove();
-    });
+    if (!el) return;
+    [...el.children].forEach(c => { if (!c.id || !c.id.endsWith('Msg')) c.remove(); });
   });
   ['rightMsg','leftMsg','otherMsg'].forEach(id => {
     const el = document.getElementById(id);
-    if(el) {
+    if (el) {
       el.style.display = 'flex';
-      el.innerHTML = `<svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+      el.innerHTML = `<svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
         <circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>
       </svg><div>等待数据加载…</div>
       <div class="progress-bar"><div class="progress-fill" style="width:0%"></div></div>
@@ -495,75 +803,66 @@ function clearAll() {
     }
   });
   document.getElementById('statsBar').style.display = 'none';
-  document.getElementById('rightCount').textContent = '— 只';
-  document.getElementById('leftCount').textContent  = '— 只';
-  document.getElementById('otherCount').textContent = '— 只';
+  ['rightCount','leftCount','otherCount'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = '— 只';
+  });
 }
 
-// ── Polling ──────────────────────────────────────────────────
 async function poll() {
   try {
-    // 1. Check status
     const statusResp = await fetch('/api/status');
     const status = await statusResp.json();
     const mkt = status[currentMarket];
 
     if (mkt.status === 'loading') {
       setStatus('loading', '数据加载中…');
-      // Update progress bars
       const prog = mkt.progress;
       if (prog && prog.total > 0) {
         const pct = Math.round(prog.done / prog.total * 100);
         const bar  = document.querySelector('#rightMsg .progress-fill');
-        const text = document.querySelector('#rightMsg .progress-text');
-        if (bar)  bar.style.width = pct + '%';
-        if (text) text.textContent = `已处理 ${prog.done} / ${prog.total}`;
+        const txt  = document.querySelector('#rightMsg .progress-text');
+        if (bar) bar.style.width = pct + '%';
+        if (txt) txt.textContent = `已处理 ${prog.done} / ${prog.total}`;
       }
-      return; // keep polling
+      return;
     }
 
     if (mkt.status === 'ready') {
-      // 2. Fetch stocks
-      const resp  = await fetch(`/api/stocks?market=${currentMarket}&side=all`);
-      const data  = await resp.json();
+      const resp = await fetch(`/api/stocks?market=${currentMarket}&side=all`);
+      const data = await resp.json();
       if (data.status !== 'ready' || !data.stocks) return;
 
-      const right = data.stocks.filter(s => s.side === '右侧');
-      const left  = data.stocks.filter(s => s.side === '左侧');
-      const other = data.stocks.filter(s => s.side === '观望');
-
-      // Store globally for re-sorting
-      stocksData = {right, left, other};
+      stocksData = {
+        right: data.stocks.filter(s => s.side === '右侧'),
+        left:  data.stocks.filter(s => s.side === '左侧'),
+        other: data.stocks.filter(s => s.side === '观望'),
+      };
 
       const closeTime = mkt.close_time;
-      const label = closeTime ? `收盘 ${closeTime}` : mkt.last_update;
-      setStatus('ready', '数据就绪', label);
+      setStatus('ready', '数据就绪', closeTime || mkt.last_update);
       await loadScanHistory(currentMarket);
 
-      // Update stats bar
       const sb = document.getElementById('statsBar');
-      sb.style.display = 'flex';
-      document.getElementById('statTotal').textContent = data.stats.total;
-      document.getElementById('statRight').textContent = data.stats.right_count;
-      document.getElementById('statLeft').textContent  = data.stats.left_count;
-      document.getElementById('statOther').textContent = data.stats.other_count;
+      if (sb) {
+        sb.style.display = 'flex';
+        document.getElementById('statTotal').textContent = data.stats.total;
+        document.getElementById('statRight').textContent = data.stats.right_count;
+        document.getElementById('statLeft').textContent  = data.stats.left_count;
+        document.getElementById('statOther').textContent = data.stats.other_count;
+      }
 
-      renderList('rightList','rightMsg','rightCount', right, '暂无右侧信号股票');
-      renderList('leftList', 'leftMsg', 'leftCount',  left,  '暂无左侧信号股票');
-      renderList('otherList','otherMsg','otherCount',  other, '暂无观望股票');
-
-      // Stop polling once data is loaded
+      redrawPanels();
       clearInterval(pollTimer);
       pollTimer = null;
       return;
     }
 
     if (mkt.status === 'error') {
-      setStatus('red', '加载失败，请手动刷新');
+      setStatus('red', '加载失败');
       clearInterval(pollTimer);
       pollTimer = null;
     }
-
   } catch(e) {
     console.warn('poll error:', e);
   }
@@ -575,21 +874,47 @@ function startPoll() {
   pollTimer = setInterval(poll, 3000);
 }
 
-// ── Full Scan ─────────────────────────────────────────────────
-let fullScanTimer = null;
+// ══════════════════════════════════════════════
+// Scan / Full Scan
+// ══════════════════════════════════════════════
+async function triggerScan() {
+  const btn = document.getElementById('btnRefresh');
+  btn.disabled = true;
+  btn.classList.add('spinning');
+  try {
+    const resp = await fetch('/api/scan', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({market: currentMarket})
+    });
+    const data = await resp.json();
+    if (data.status === 'already_latest') {
+      showToast('✅ ' + data.message);
+      return;
+    }
+    if (data.status === 'already_loading') {
+      showToast('⏳ 正在扫描中，请稍候', 'warn');
+      startPoll();
+      return;
+    }
+    setStatus('loading', '扫描中…');
+    clearAll();
+    document.getElementById('historySelect').value = '';
+    startPoll();
+  } catch(e) {
+    setStatus('red', '请求失败');
+  } finally {
+    setTimeout(() => { btn.disabled=false; btn.classList.remove('spinning'); }, 3000);
+  }
+}
 
+let fullScanTimer = null;
 async function triggerFullScan() {
   const btn = document.getElementById('btnFullScan');
   btn.disabled = true;
-
   try {
-    const resp = await fetch('/api/full_scan', {method: 'POST'});
+    const resp = await fetch('/api/full_scan', {method:'POST'});
     const data = await resp.json();
-    if (data.status === 'already_running') {
-      showScanOverlay();
-      pollFullScan();
-      return;
-    }
     showScanOverlay();
     pollFullScan();
   } catch(e) {
@@ -597,67 +922,42 @@ async function triggerFullScan() {
     btn.disabled = false;
   }
 }
-
-function showScanOverlay() {
-  document.getElementById('scanOverlay').classList.add('active');
-}
-
+function showScanOverlay() { document.getElementById('scanOverlay').classList.add('active'); }
 function hideScanOverlay() {
   document.getElementById('scanOverlay').classList.remove('active');
   document.getElementById('btnFullScan').disabled = false;
 }
-
 function pollFullScan() {
   if (fullScanTimer) clearInterval(fullScanTimer);
   fullScanTimer = setInterval(async () => {
     try {
       const resp = await fetch('/api/status');
       const data = await resp.json();
-      const fs   = data.full_scan;
-
+      const fs = data.full_scan;
       const fill = document.getElementById('scanProgFill');
       const text = document.getElementById('scanProgText');
       const last = document.getElementById('scanLast');
-
       if (fs.progress && fs.progress.total > 0) {
         const pct = Math.round(fs.progress.done / fs.progress.total * 100);
-        fill.style.width = pct + '%';
-        text.textContent = `已处理 ${fs.progress.done} / ${fs.progress.total} 只（${pct}%）`;
+        if (fill) fill.style.width = pct + '%';
+        if (text) text.textContent = `已处理 ${fs.progress.done} / ${fs.progress.total}（${pct}%）`;
       }
-
       if (!fs.running) {
-        clearInterval(fullScanTimer);
-        fullScanTimer = null;
+        clearInterval(fullScanTimer); fullScanTimer = null;
         if (fs.last_run) {
-          fill.style.width = '100%';
-          text.textContent = `扫描完成！共 ${fs.last_count} 只符合条件`;
-          last.style.display = 'block';
-          last.textContent   = `完成时间: ${fs.last_run}`;
-          setTimeout(() => {
-            hideScanOverlay();
-            clearAll();
-            startPoll();
-          }, 2000);
-        } else {
-          hideScanOverlay();
-        }
+          if (fill) fill.style.width = '100%';
+          if (text) text.textContent = `扫描完成！共 ${fs.last_count} 只符合条件`;
+          if (last) { last.style.display='block'; last.textContent=`完成时间: ${fs.last_run}`; }
+          setTimeout(() => { hideScanOverlay(); clearAll(); startPoll(); }, 2000);
+        } else { hideScanOverlay(); }
       }
-    } catch(e) {
-      console.warn('fullScan poll error:', e);
-    }
+    } catch(e) { console.warn('fullScan poll error:', e); }
   }, 3000);
 }
 
-// ── Toast ────────────────────────────────────────────────────
-function showToast(msg, warn=false) {
-  const t = document.getElementById('toast');
-  t.textContent = msg;
-  t.className = 'toast show' + (warn ? ' warn' : '');
-  clearTimeout(t._timer);
-  t._timer = setTimeout(() => t.classList.remove('show'), 3500);
-}
-
-// ── Scan History ─────────────────────────────────────────────
+// ══════════════════════════════════════════════
+// History
+// ══════════════════════════════════════════════
 async function loadScanHistory(market) {
   try {
     const resp = await fetch(`/api/scan_history?market=${market}`);
@@ -668,13 +968,12 @@ async function loadScanHistory(market) {
     list.forEach(h => {
       const opt = document.createElement('option');
       opt.value = h.scan_time;
-      const isClosed = h.is_close_data;
-      opt.textContent = (isClosed ? '📌 ' : '○ ') + h.label +
-        ` （右${h.stats.right_count}/左${h.stats.left_count}）`;
+      opt.textContent = (h.is_close_data ? '📌 ' : '○ ') + h.label +
+        ` (右${h.stats.right_count}/左${h.stats.left_count})`;
       sel.appendChild(opt);
     });
     sel.style.display = list.length > 0 ? '' : 'none';
-  } catch(e) { console.warn('loadScanHistory error:', e); }
+  } catch(e) { console.warn('loadScanHistory:', e); }
 }
 
 async function loadSnapshot(scan_time) {
@@ -683,129 +982,463 @@ async function loadSnapshot(scan_time) {
     const resp = await fetch(`/api/stocks_snapshot?market=${currentMarket}&scan_time=${encodeURIComponent(scan_time)}`);
     const data = await resp.json();
     if (data.error) return;
-    const right = data.stocks.filter(s => s.side === '右侧');
-    const left  = data.stocks.filter(s => s.side === '左侧');
-    const other = data.stocks.filter(s => s.side === '观望');
-    const label = data.close_time ? `收盘数据 ${data.close_time}` : data.last_update;
-    setStatus('ready', `历史快照`, label);
-    document.getElementById('statsBar').style.display = 'flex';
-    document.getElementById('statTotal').textContent = data.stats.total;
-    document.getElementById('statRight').textContent = data.stats.right_count;
-    document.getElementById('statLeft').textContent  = data.stats.left_count;
-    document.getElementById('statOther').textContent = data.stats.other_count;
-    renderList('rightList','rightMsg','rightCount', right, '暂无右侧信号股票');
-    renderList('leftList', 'leftMsg', 'leftCount',  left,  '暂无左侧信号股票');
-    renderList('otherList','otherMsg','otherCount',  other, '暂无观望股票');
-  } catch(e) { console.warn('loadSnapshot error:', e); }
+    stocksData = {
+      right: data.stocks.filter(s => s.side === '右侧'),
+      left:  data.stocks.filter(s => s.side === '左侧'),
+      other: data.stocks.filter(s => s.side === '观望'),
+    };
+    setStatus('ready', '历史快照', data.close_time || data.last_update);
+    const sb = document.getElementById('statsBar');
+    if (sb) {
+      sb.style.display = 'flex';
+      document.getElementById('statTotal').textContent = data.stats.total;
+      document.getElementById('statRight').textContent = data.stats.right_count;
+      document.getElementById('statLeft').textContent  = data.stats.left_count;
+      document.getElementById('statOther').textContent = data.stats.other_count;
+    }
+    redrawPanels();
+  } catch(e) { console.warn('loadSnapshot:', e); }
 }
 
-// ── Scan (replaces Refresh) ───────────────────────────────────
-async function triggerScan() {
-  const btn = document.getElementById('btnRefresh');
-  btn.disabled = true;
-  btn.classList.add('spinning');
+// ══════════════════════════════════════════════
+// Sort Panel
+// ══════════════════════════════════════════════
+function sortPanel(panel, key) {
+  const stocks = filterStocks([...(stocksData[panel] || [])]);
+  const btns = document.querySelectorAll(`#${panel}SortBtns button`);
+  btns.forEach(b => b.classList.toggle('active', b.dataset.key === key));
+  switch(key) {
+    case 'score':
+      if (panel==='right') stocks.sort((a,b)=>b.right_score-a.right_score);
+      else if (panel==='left') stocks.sort((a,b)=>b.left_score-a.left_score);
+      else stocks.sort((a,b)=>(b.avg_amt_yi||0)-(a.avg_amt_yi||0));
+      break;
+    case 'chg_desc': stocks.sort((a,b)=>(b.change_pct||0)-(a.change_pct||0)); break;
+    case 'chg_asc':  stocks.sort((a,b)=>(a.change_pct||0)-(b.change_pct||0)); break;
+    case 'vol':       stocks.sort((a,b)=>(b.avg_amt_yi||0)-(a.avg_amt_yi||0)); break;
+  }
+  const emptyMap = {right:'暂无右侧信号',left:'暂无左侧信号',other:'暂无观望股票'};
+  renderList(panel+'List', panel+'Msg', panel+'Count', stocks, emptyMap[panel]||'暂无数据');
+}
 
+// ══════════════════════════════════════════════
+// Watchlist
+// ══════════════════════════════════════════════
+async function loadWatchlist() {
   try {
-    const resp = await fetch('/api/scan', {
+    const resp = await fetch('/api/watchlist');
+    const list = await resp.json();
+    watchlistCodes = new Set(list.map(s => s.code));
+    renderWatchlist(list);
+    const cnt = document.getElementById('wlNavCount');
+    if (cnt) cnt.textContent = list.length > 0 ? `(${list.length})` : '';
+    const wlCnt = document.getElementById('wlCount');
+    if (wlCnt) wlCnt.textContent = list.length + ' 只';
+  } catch(e) { console.warn('loadWatchlist:', e); }
+}
+
+function renderWatchlist(list) {
+  const empty = document.getElementById('wlEmpty');
+  const grid  = document.getElementById('wlGrid');
+  if (!grid) return;
+  if (!list || list.length === 0) {
+    if (empty) empty.style.display = 'flex';
+    grid.style.display = 'none';
+    return;
+  }
+  if (empty) empty.style.display = 'none';
+  grid.style.display = 'grid';
+  grid.innerHTML = list.map(entry => {
+    const cur = entry.current_status;
+    const hist = entry.status_history || [];
+    const prev = hist.length >= 2 ? hist[hist.length - 2] : null;
+
+    let deltaHtml = '';
+    if (cur && prev) {
+      const sideOrder = {'右侧':2,'观望':1,'左侧':0};
+      const curOrd = sideOrder[cur.side] ?? 1;
+      const prevOrd = sideOrder[prev.side] ?? 1;
+      if (curOrd > prevOrd) deltaHtml = `<span class="status-delta improved">↑ 改善</span>`;
+      else if (curOrd < prevOrd) deltaHtml = `<span class="status-delta worsened">↓ 走弱</span>`;
+      else deltaHtml = `<span class="status-delta unchanged">→ 持平</span>`;
+    }
+
+    const priceStr = cur ? `<span class="wl-price ${chgClass(cur.change_pct)}">${fmt(cur.price,3)}</span>
+      <span class="wl-chg ${chgClass(cur.change_pct)}">${chgStr(cur.change_pct)}</span>` : '<span style="color:#8b949e">未更新</span>';
+
+    const sideTag = cur ? `<span class="side-tag ${cur.side||''}">${cur.side||''}</span>` : '';
+    const sigTag  = cur && cur.signal_strength ? `<span class="strength-tag ${strengthClass(cur.signal_strength)}">${cur.signal_strength}</span>` : '';
+    const valTag  = cur && cur.value_tag ? `<span class="value-tag-badge">${cur.value_tag}</span>` : '';
+
+    // Mini history dots
+    const dotColors = {'右侧':'#3fb950','左侧':'#f85149','观望':'#58a6ff'};
+    const miniDots = hist.slice(-14).map(h =>
+      `<div class="hist-dot" style="background:${dotColors[h.side]||'#30363d'}" title="${h.date} ${h.side||''} ${h.signal_strength||''}"></div>`
+    ).join('');
+
+    return `<div class="wl-card">
+      <button class="wl-remove" onclick="removeFromWatchlist('${entry.code}')" title="移出自选池">×</button>
+      <div class="wl-card-top">
+        <span class="wl-code">${entry.code}</span>
+        <span class="wl-name">${entry.name||entry.code}</span>
+        ${priceStr}
+      </div>
+      <div class="wl-tags">${sideTag}${sigTag}${valTag}${deltaHtml}</div>
+      <div class="wl-meta">
+        <span>加入：<b>${(entry.added_at||'').slice(0,10)}</b></span>
+        ${cur ? `<span>RSI：<b>${fmt(cur.right_score!=null?cur.right_score:'-')}</b></span>` : ''}
+      </div>
+      ${miniDots ? `<div class="wl-hist-mini" title="近14日状态">${miniDots}</div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+async function toggleWatchlist(code, name, market) {
+  if (watchlistCodes.has(code)) {
+    await removeFromWatchlist(code);
+  } else {
+    await addToWatchlist(code, name, market);
+  }
+}
+
+async function addToWatchlist(code, name, market) {
+  try {
+    const resp = await fetch('/api/watchlist', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({code, name, market})
+    });
+    const data = await resp.json();
+    if (data.ok) {
+      watchlistCodes.add(code);
+      showToast(`⭐ ${name} 已加入自选池`);
+      updateWatchlistBtns();
+      const cnt = document.getElementById('wlNavCount');
+      if (cnt) cnt.textContent = `(${watchlistCodes.size})`;
+    } else {
+      showToast('已在自选池中', 'warn');
+    }
+  } catch(e) { showToast('操作失败', 'error'); }
+}
+
+async function removeFromWatchlist(code) {
+  try {
+    await fetch('/api/watchlist/' + encodeURIComponent(code), {method:'DELETE'});
+    watchlistCodes.delete(code);
+    showToast('已从自选池移除');
+    updateWatchlistBtns();
+    loadWatchlist();
+    const cnt = document.getElementById('wlNavCount');
+    if (cnt) cnt.textContent = watchlistCodes.size > 0 ? `(${watchlistCodes.size})` : '';
+  } catch(e) { showToast('操作失败', 'error'); }
+}
+
+function updateWatchlistBtns() {
+  // Update ⭐ buttons in current visible cards
+  document.querySelectorAll('.btn-watchlist').forEach(btn => {
+    const card = btn.closest('.stock-card');
+    if (!card) return;
+    const id = card.id; // sc-{code}
+    const code = id.replace('sc-','');
+    const inList = watchlistCodes.has(code);
+    btn.textContent = inList ? '★' : '☆';
+    btn.className = 'btn-watchlist' + (inList ? ' in-list' : '');
+    btn.title = inList ? '从自选池移除' : '加入自选池';
+  });
+}
+
+// ══════════════════════════════════════════════
+// Strategy
+// ══════════════════════════════════════════════
+function onStratTypeChange() {
+  const type = document.getElementById('stratType').value;
+  const presets = {
+    right_momentum: { entry: ['⚡强烈买入','✅买入'], exit: ['🔴强烈卖出','⚠️卖出观察'] },
+    left_value:     { entry: ['💎价值空间','⚠️卖出观察'], exit: ['⚡强烈买入','✅买入'] },
+    rsi_reversal:   { entry: ['🔴强烈卖出'], exit: ['⚡强烈买入','✅买入'] },
+    custom:         { entry: [], exit: [] },
+  };
+  const preset = presets[type];
+  if (!preset) return;
+  if (preset.entry.length > 0) {
+    document.querySelectorAll('#entrySignals input').forEach(cb => {
+      cb.checked = preset.entry.includes(cb.value);
+    });
+  }
+  if (preset.exit.length > 0) {
+    document.querySelectorAll('#exitSignals input').forEach(cb => {
+      cb.checked = preset.exit.includes(cb.value);
+    });
+  }
+}
+
+async function createStrategy() {
+  const entry = [...document.querySelectorAll('#entrySignals input:checked')].map(c => c.value);
+  const exit  = [...document.querySelectorAll('#exitSignals input:checked')].map(c => c.value);
+  if (entry.length === 0) { showToast('请选择至少一个入场信号', 'warn'); return; }
+
+  const params = {
+    name: document.getElementById('stratName').value || '新策略',
+    type: document.getElementById('stratType').value,
+    market: currentMarket,
+    initial_capital: parseFloat(document.getElementById('stratCapital').value) || 1000000,
+    max_positions: parseInt(document.getElementById('stratMaxPos').value) || 10,
+    entry_signals: entry,
+    exit_signals: exit,
+    position_stop_loss: parseFloat(document.getElementById('stratPosStop').value) || -10,
+    portfolio_stop: parseFloat(document.getElementById('stratPortStop').value) || -20,
+  };
+  try {
+    const resp = await fetch('/api/strategies', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(params)
+    });
+    const s = await resp.json();
+    showToast(`✅ 策略「${s.name}」已创建`);
+    await loadStrategies();
+    selectStrategy(s.id);
+  } catch(e) { showToast('创建失败', 'error'); }
+}
+
+async function loadStrategies() {
+  try {
+    const resp = await fetch('/api/strategies');
+    const list = await resp.json();
+    renderStrategyList(list);
+    if (selectedStratId) {
+      const s = list.find(s => s.id === selectedStratId);
+      if (s) renderStrategyDetail(s);
+    }
+  } catch(e) { console.warn('loadStrategies:', e); }
+}
+
+function renderStrategyList(list) {
+  const el = document.getElementById('stratList');
+  if (!el) return;
+  if (!list || list.length === 0) {
+    el.innerHTML = '<div style="padding:20px;text-align:center;color:#8b949e;font-size:12px">暂无策略</div>';
+    return;
+  }
+  el.innerHTML = list.map(s => {
+    const sum = s.summary || {};
+    const ret = sum.total_return_pct != null ? sum.total_return_pct : 0;
+    const nav = sum.current_nav || 1;
+    const retClass = ret > 0 ? 'color:#3fb950' : ret < 0 ? 'color:#f85149' : 'color:#8b949e';
+    const isSelected = s.id === selectedStratId;
+    return `<div class="strat-item${isSelected?' selected':''}" onclick="selectStrategy('${s.id}')">
+      <div class="strat-item-name">
+        ${s.name}
+        <span class="strat-status ${s.status}">${s.status==='active'?'运行中':s.status==='liquidated'?'已清盘':'暂停'}</span>
+      </div>
+      <div class="strat-item-stats">
+        <span>净值 <b style="${retClass}">${nav.toFixed(3)}</b></span>
+        <span>收益 <b style="${retClass}">${ret>=0?'+':''}${ret.toFixed(1)}%</b></span>
+        <span>仓位 <b>${sum.n_positions||0}/${s.max_positions}</b></span>
+        ${s.last_run ? `<span>最后运行 ${s.last_run}</span>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function selectStrategy(sid) {
+  selectedStratId = sid;
+  document.querySelectorAll('.strat-item').forEach(el => {
+    el.classList.toggle('selected', el.onclick && el.getAttribute('onclick').includes(sid));
+  });
+  fetch('/api/strategies').then(r=>r.json()).then(list => {
+    const s = list.find(s => s.id === sid);
+    if (s) renderStrategyDetail(s);
+  });
+}
+
+function renderStrategyDetail(s) {
+  const main = document.getElementById('stratMain');
+  if (!main) return;
+  const sum = s.summary || {};
+  const ret = sum.total_return_pct != null ? sum.total_return_pct : 0;
+  const nav = sum.current_nav || 1;
+  const dd  = sum.max_drawdown_pct || 0;
+  const retColor = ret >= 0 ? '#3fb950' : '#f85149';
+  const ddColor  = dd  <= -10 ? '#f85149' : dd <= -5 ? '#f0883e' : '#8b949e';
+
+  // Positions table
+  const positions = s.positions || {};
+  const posRows = Object.entries(positions).map(([code, pos]) => {
+    return `<tr>
+      <td><b>${code}</b></td>
+      <td>${pos.name||''}</td>
+      <td>${pos.entry_price}</td>
+      <td>${pos.shares.toLocaleString()}</td>
+      <td>${(pos.cost/10000).toFixed(1)}万</td>
+      <td><span class="strength-tag ${strengthClass(pos.signal)}">${pos.signal||''}</span></td>
+      <td>${pos.entry_date||''}</td>
+    </tr>`;
+  }).join('') || `<tr class="no-data-row"><td colspan="7">暂无持仓</td></tr>`;
+
+  // Trades table (last 20)
+  const trades = (s.trades||[]).slice(-20).reverse();
+  const tradeRows = trades.map(t => {
+    const isB = t.action==='buy';
+    return `<tr>
+      <td>${t.date||''}</td>
+      <td><span class="${isB?'action-buy':'action-sell'}">${isB?'买入':'卖出'}</span></td>
+      <td>${t.code}</td>
+      <td>${t.name||''}</td>
+      <td>${t.price}</td>
+      <td>${(t.shares||0).toLocaleString()}</td>
+      <td>${t.reason||''}</td>
+      <td>${t.pnl_pct!=null?`<span class="${t.pnl_pct>=0?'pos-pnl-pos':'pos-pnl-neg'}">${t.pnl_pct>=0?'+':''}${t.pnl_pct.toFixed(1)}%</span>`:'—'}</td>
+    </tr>`;
+  }).join('') || `<tr class="no-data-row"><td colspan="8">暂无交易记录</td></tr>`;
+
+  main.innerHTML = `
+    <div class="strat-detail-header">
+      <div class="strat-detail-name">${s.name}</div>
+      <span class="strat-status ${s.status}">${s.status==='active'?'运行中':s.status==='liquidated'?'已清盘':'暂停'}</span>
+      <div style="margin-left:auto;display:flex;gap:8px">
+        <button class="run-btn" onclick="runStrategy('${s.id}')" ${s.status==='liquidated'?'disabled':''}>▶ 运行一步</button>
+        <button class="del-btn" onclick="deleteStrategy('${s.id}')">✕ 删除</button>
+      </div>
+    </div>
+    <div class="strat-kpis">
+      <div class="kpi-card">
+        <div class="kpi-label">当前净值</div>
+        <div class="kpi-value" style="color:${retColor}">${nav.toFixed(3)}</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">总收益</div>
+        <div class="kpi-value" style="color:${retColor}">${ret>=0?'+':''}${ret.toFixed(1)}%</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">最大回撤</div>
+        <div class="kpi-value" style="color:${ddColor}">${dd.toFixed(1)}%</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">当前持仓</div>
+        <div class="kpi-value">${sum.n_positions||0} <span style="font-size:12px;color:#8b949e">/ ${s.max_positions}</span></div>
+      </div>
+    </div>
+    <div class="strat-section">
+      <div class="strat-section-title">净值曲线</div>
+      <div class="chart-wrap"><canvas id="navChart"></canvas></div>
+    </div>
+    <div class="strat-section">
+      <div class="strat-section-title">当前持仓 (${Object.keys(positions).length})</div>
+      <div style="overflow-x:auto">
+        <table class="mini-table">
+          <thead><tr><th>代码</th><th>名称</th><th>买入价</th><th>份额</th><th>市值</th><th>入场信号</th><th>入场日</th></tr></thead>
+          <tbody>${posRows}</tbody>
+        </table>
+      </div>
+    </div>
+    <div class="strat-section">
+      <div class="strat-section-title">交易记录（最近20条）</div>
+      <div style="overflow-x:auto">
+        <table class="mini-table">
+          <thead><tr><th>日期</th><th>方向</th><th>代码</th><th>名称</th><th>价格</th><th>份额</th><th>原因</th><th>盈亏</th></tr></thead>
+          <tbody>${tradeRows}</tbody>
+        </table>
+      </div>
+    </div>
+    <div style="font-size:11px;color:#8b949e;margin-top:10px">
+      策略参数：${s.type} | 初始资金 ${(s.initial_capital/10000).toFixed(0)}万 |
+      入场：${(s.entry_signals||[]).join('/')} | 离场：${(s.exit_signals||[]).join('/')} |
+      单仓止损 ${s.position_stop_loss}% | 组合止损 ${s.portfolio_stop}%
+    </div>`;
+
+  // Render nav chart
+  renderNavChart(s.nav_history || []);
+}
+
+function renderNavChart(navHistory) {
+  const canvas = document.getElementById('navChart');
+  if (!canvas) return;
+  if (navChartInst) { navChartInst.destroy(); navChartInst = null; }
+  if (!navHistory || navHistory.length === 0) {
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#8b949e';
+    ctx.font = '12px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('暂无净值数据', canvas.width/2, canvas.height/2);
+    return;
+  }
+  const labels = navHistory.map(h => h.date);
+  const vals   = navHistory.map(h => h.nav);
+  const lastVal = vals[vals.length-1];
+  const lineColor = lastVal >= 1 ? '#3fb950' : '#f85149';
+  navChartInst = new Chart(canvas, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        data: vals,
+        borderColor: lineColor,
+        backgroundColor: lineColor + '22',
+        borderWidth: 2,
+        fill: true,
+        tension: 0.3,
+        pointRadius: vals.length > 30 ? 0 : 3,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: '#8b949e', font: {size:10}, maxTicksLimit: 8 }, grid: { color: '#21262d' } },
+        y: { ticks: { color: '#8b949e', font: {size:10} }, grid: { color: '#21262d' } }
+      }
+    }
+  });
+}
+
+async function runStrategy(sid) {
+  try {
+    const resp = await fetch(`/api/strategies/${sid}/run`, {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
       body: JSON.stringify({market: currentMarket})
     });
     const data = await resp.json();
-
-    if (data.status === 'already_latest') {
-      showToast('✅ ' + data.message);
-      btn.disabled = false;
-      btn.classList.remove('spinning');
-      return;
-    }
-    if (data.status === 'already_loading') {
-      showToast('⏳ 正在扫描中，请稍候', true);
-      btn.disabled = false;
-      btn.classList.remove('spinning');
-      startPoll();
-      return;
-    }
-
-    setStatus('loading', '扫描中…');
-    clearAll();
-    // Reset history dropdown
-    document.getElementById('historySelect').value = '';
-    startPoll();
-  } catch(e) {
-    setStatus('red', '请求失败');
-  } finally {
-    setTimeout(() => {
-      btn.disabled = false;
-      btn.classList.remove('spinning');
-    }, 3000);
-  }
+    if (data.error) { showToast('运行失败: '+data.error, 'error'); return; }
+    const sum = data.summary || {};
+    showToast(`▶ 执行完成 | 净值 ${(sum.current_nav||1).toFixed(3)} | 收益 ${sum.total_return_pct>=0?'+':''}${(sum.total_return_pct||0).toFixed(1)}%`);
+    await loadStrategies();
+    renderStrategyDetail(data);
+  } catch(e) { showToast('执行失败', 'error'); }
 }
 
-// ── Sort Panel ────────────────────────────────────────────────
-function sortPanel(panel, key) {
-  const listId   = panel + 'List';
-  const msgId    = panel + 'Msg';
-  const countId  = panel + 'Count';
-  const btnsId   = panel + 'SortBtns';
-  const stocks   = [...(stocksData[panel] || [])];
-
-  // Update active button state
-  const btns = document.querySelectorAll(`#${btnsId} button`);
-  btns.forEach(b => b.classList.toggle('active', b.dataset.key === key));
-
-  switch(key) {
-    case 'score':
-      if(panel === 'right') stocks.sort((a,b) => b.right_score - a.right_score);
-      else if(panel === 'left') stocks.sort((a,b) => b.left_score - a.left_score);
-      else stocks.sort((a,b) => b.avg_amt_yi - a.avg_amt_yi);
-      break;
-    case 'chg_desc':
-      stocks.sort((a,b) => b.change_pct - a.change_pct);
-      break;
-    case 'chg_asc':
-      stocks.sort((a,b) => a.change_pct - b.change_pct);
-      break;
-    case 'vol':
-      stocks.sort((a,b) => b.avg_amt_yi - a.avg_amt_yi);
-      break;
-  }
-
-  const emptyMap = {right: '暂无右侧信号股票', left: '暂无左侧信号股票', other: '暂无观望股票'};
-  renderList(listId, msgId, countId, stocks, emptyMap[panel] || '暂无数据');
+async function deleteStrategy(sid) {
+  if (!confirm('确认删除该策略？此操作不可撤销。')) return;
+  try {
+    await fetch(`/api/strategies/${sid}`, {method:'DELETE'});
+    selectedStratId = null;
+    const main = document.getElementById('stratMain');
+    if (main) main.innerHTML = '<div class="strat-detail-empty"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" style="opacity:.2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg><div>从左侧选择策略查看详情</div></div>';
+    showToast('策略已删除');
+    loadStrategies();
+  } catch(e) { showToast('删除失败', 'error'); }
 }
 
-// ── Auto Refresh Timer (next close) ─────────────────────────
-function nextCloseCountdown() {
-  const now = new Date();
-  const tz = 8; // CST offset
-  const h = now.getUTCHours() + tz;
-  const closes = currentMarket === 'a_share'
-    ? [{h:11,m:35},{h:15,m:5}]
-    : [{h:12,m:5}, {h:16,m:5}];
-
-  const [hh, mm] = [now.getHours(), now.getMinutes()];
-  let next = null;
-  for (const c of closes) {
-    if (hh < c.h || (hh === c.h && mm < c.m)) {
-      next = c; break;
-    }
-  }
-  if (!next) return; // after last close
-  const secsLeft = (next.h - hh) * 3600 + (next.m - mm) * 60 - now.getSeconds();
-  const hLeft = Math.floor(secsLeft / 3600);
-  const mLeft = Math.floor((secsLeft % 3600) / 60);
-  const sLeft = secsLeft % 60;
-  const upd = document.getElementById('lastUpdate');
-  if(upd && !document.getElementById('statusDot').classList.contains('green')) return;
-  // overlay countdown next to last update
+// ══════════════════════════════════════════════
+// Toast
+// ══════════════════════════════════════════════
+function showToast(msg, type) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show' + (type ? ' ' + type : '');
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => t.classList.remove('show'), 3500);
 }
 
-// ── Init ─────────────────────────────────────────────────────
+// ══════════════════════════════════════════════
+// Init
+// ══════════════════════════════════════════════
 window.addEventListener('DOMContentLoaded', async () => {
   await loadScanHistory(currentMarket);
+  await loadWatchlist();
   startPoll();
-  // 如果启动时全量扫描已在后台运行，自动恢复显示进度
   try {
     const resp = await fetch('/api/status');
     const data = await resp.json();

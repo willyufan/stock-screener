@@ -121,19 +121,24 @@ def classify_stock(hist_df: pd.DataFrame, pe_ttm: float = None, pb: float = None
 
     # ---- 信号强度 ----
     if side == '右侧':
-        if right_score >= 5:
+        if right_score >= 6:
             signal_strength = '⚡强烈买入'
-        else:
+        elif right_score >= 4:
             signal_strength = '✅买入'
-    elif side == '左侧':
-        if value_tag in ('成熟股价值空间', 'PB<1破净值'):
-            signal_strength = '💎价值空间'
-        elif left_score >= 5:
-            signal_strength = '🔴强烈卖出'
         else:
+            signal_strength = '📈关注买入'
+    elif side == '左侧':
+        if left_score >= 6:
+            signal_strength = '🔴强烈卖出'
+        elif left_score >= 4:
             signal_strength = '⚠️卖出观察'
+        else:
+            signal_strength = '🔻弱势关注'
     else:
-        signal_strength = '🔍观望'
+        if max(right_score, left_score) >= 2:
+            signal_strength = '🔍待确认'
+        else:
+            signal_strength = '😴横盘观望'
 
     return {
         'side':           side,
