@@ -526,6 +526,58 @@ def api_watchlist_refresh():
     return jsonify(updated)
 
 
+@app.route('/api/signal_changes')
+def api_signal_changes():
+    """比较最新两次不同日期扫描，返回信号明显变化的股票"""
+    market  = request.args.get('market', 'a_share')
+    history = _load_history(market)
+
+    if len(history) < 2:
+        return jsonify({'buy': [], 'sell': [], 'no_prev': True})
+
+    latest     = history[0]
+    latest_date = latest.get('scan_date', '')
+
+    prev = next((h for h in history[1:] if h.get('scan_date', '') != latest_date), None)
+    if not prev:
+        return jsonify({'buy': [], 'sell': [], 'no_prev': True})
+
+    def build_map(data):
+        all_s = data.get('right', []) + data.get('left', []) + data.get('other', [])
+        return {s['code']: s for s in all_s}
+
+    cur_map  = build_map(latest.get('data', {}))
+    prev_map = build_map(prev.get('data', {}))
+
+    buy_changes  = []
+    sell_changes = []
+
+    for code, cur in cur_map.items():
+        prev_s = prev_map.get(code)
+        if not prev_s:
+            continue
+        cur_sig   = cur.get('signal_strength', '')
+        prev_side = prev_s.get('side', '')
+        prev_sig  = prev_s.get('signal_strength', '')
+        if cur_sig == prev_sig:
+            continue
+
+        if cur_sig == '⚡强烈买入' and prev_side in ('观望', '左侧'):
+            buy_changes.append({**cur, 'prev_side': prev_side, 'prev_signal': prev_sig})
+        elif cur_sig == '🔴强烈卖出' and prev_side in ('右侧', '观望'):
+            sell_changes.append({**cur, 'prev_side': prev_side, 'prev_signal': prev_sig})
+
+    buy_changes.sort(key=lambda x: x.get('right_score', 0), reverse=True)
+    sell_changes.sort(key=lambda x: x.get('left_score', 0), reverse=True)
+
+    return jsonify({
+        'buy':           buy_changes,
+        'sell':          sell_changes,
+        'current_label': latest.get('label', latest_date),
+        'prev_label':    prev.get('label', prev.get('scan_date', '')),
+    })
+
+
 @app.route('/api/stock_detail')
 def api_stock_detail():
     """从缓存中查找单只股票的完整数据（含K线历史）"""

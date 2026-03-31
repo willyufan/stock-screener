@@ -92,6 +92,31 @@ header{flex-shrink:0;background:#161b22;border-bottom:1px solid #30363d;
   display:flex;gap:14px;font-size:11px;color:#8b949e;flex-wrap:wrap;align-items:center}
 .stats-bar b{color:#e6edf3}
 
+/* Signal changes bar */
+.sig-changes-bar{flex-shrink:0;background:#0d1117;border-bottom:1px solid #21262d}
+.sig-changes-header{padding:5px 16px;display:flex;align-items:center;gap:8px;cursor:pointer;
+  user-select:none;font-size:11px;color:#8b949e}
+.sig-changes-header:hover{background:#161b22}
+.sig-changes-header .sc-title{font-weight:600;color:#e6edf3;font-size:12px}
+.sig-changes-header .sc-caret{transition:transform .2s;display:inline-block;font-size:10px}
+.sig-changes-header.open .sc-caret{transform:rotate(90deg)}
+.sig-changes-body{display:none;padding:8px 16px 10px;overflow-x:auto}
+.sig-changes-body.open{display:block}
+.sc-group{margin-bottom:8px}
+.sc-group-label{font-size:10px;font-weight:700;letter-spacing:.04em;margin-bottom:6px;color:#8b949e;text-transform:uppercase}
+.sc-cards{display:flex;gap:7px;flex-wrap:wrap}
+.sc-card{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:7px 10px;
+  min-width:130px;max-width:180px;cursor:pointer;transition:.12s}
+.sc-card:hover{border-color:#58a6ff;background:#1a2035}
+.sc-card.buy-card{border-color:#238636}
+.sc-card.sell-card{border-color:#da3633}
+.sc-card-top{display:flex;align-items:center;gap:5px;margin-bottom:4px}
+.sc-card-code{font-size:10px;color:#8b949e;font-family:monospace}
+.sc-card-name{font-size:11px;font-weight:600;color:#e6edf3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:90px}
+.sc-arrow{font-size:10px;color:#8b949e;display:flex;align-items:center;gap:4px;margin-bottom:3px}
+.sc-price-row{display:flex;align-items:baseline;gap:5px;font-size:11px}
+.sc-score{font-size:9px;color:#8b949e;margin-top:2px}
+
 /* Panels */
 .main{display:flex;flex:1;overflow:hidden;gap:0}
 .panel{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0;border-right:1px solid #30363d}
@@ -424,6 +449,27 @@ header{flex-shrink:0;background:#161b22;border-bottom:1px solid #30363d;
     &nbsp;|&nbsp; <span style="color:#f85149">左侧 <b id="statLeft">0</b></span>
     &nbsp;|&nbsp; <span style="color:#58a6ff">观望 <b id="statOther">0</b></span>
     &nbsp;|&nbsp; <span id="filterInfo" style="color:#d2a8ff"></span>
+  </div>
+
+  <!-- Signal Changes bar -->
+  <div class="sig-changes-bar" id="sigChangesBar" style="display:none">
+    <div class="sig-changes-header" id="sigChangesHeader" onclick="toggleSigChanges()">
+      <span class="sc-caret">▶</span>
+      <span class="sc-title">📡 信号变化</span>
+      <span id="scBuyCount" style="color:#3fb950;font-size:11px"></span>
+      <span id="scSellCount" style="color:#f85149;font-size:11px"></span>
+      <span id="scCompareLabel" style="margin-left:auto;font-size:10px;color:#6e7681"></span>
+    </div>
+    <div class="sig-changes-body" id="sigChangesBody">
+      <div class="sc-group" id="scBuyGroup" style="display:none">
+        <div class="sc-group-label" style="color:#3fb950">⚡ 观望/左侧 → 强烈买入</div>
+        <div class="sc-cards" id="scBuyCards"></div>
+      </div>
+      <div class="sc-group" id="scSellGroup" style="display:none">
+        <div class="sc-group-label" style="color:#f85149">🔴 右侧/观望 → 强烈卖出</div>
+        <div class="sc-cards" id="scSellCards"></div>
+      </div>
+    </div>
   </div>
 
   <!-- 3 Panels -->
@@ -913,6 +959,96 @@ function clearAll() {
   });
 }
 
+// ══════════════════════════════════════════════
+// Signal Changes
+// ══════════════════════════════════════════════
+function toggleSigChanges() {
+  const header = document.getElementById('sigChangesHeader');
+  const body   = document.getElementById('sigChangesBody');
+  const isOpen = body.classList.contains('open');
+  body.classList.toggle('open', !isOpen);
+  header.classList.toggle('open', !isOpen);
+}
+
+async function loadSignalChanges(market) {
+  const bar = document.getElementById('sigChangesBar');
+  try {
+    const resp = await fetch(`/api/signal_changes?market=${market}`);
+    const data = await resp.json();
+
+    if (data.no_prev || (data.buy.length === 0 && data.sell.length === 0)) {
+      if (bar) bar.style.display = 'none';
+      return;
+    }
+
+    bar.style.display = '';
+
+    const compareLabel = document.getElementById('scCompareLabel');
+    if (compareLabel) compareLabel.textContent = `对比：${data.prev_label} → ${data.current_label}`;
+
+    const buyCount  = document.getElementById('scBuyCount');
+    const sellCount = document.getElementById('scSellCount');
+    if (buyCount)  buyCount.textContent  = data.buy.length  > 0 ? `⚡ ${data.buy.length}只买入` : '';
+    if (sellCount) sellCount.textContent = data.sell.length > 0 ? `🔴 ${data.sell.length}只卖出` : '';
+
+    renderScGroup('scBuyGroup', 'scBuyCards', data.buy, 'buy');
+    renderScGroup('scSellGroup', 'scSellCards', data.sell, 'sell');
+
+    // Auto-expand if there are changes
+    if (data.buy.length > 0 || data.sell.length > 0) {
+      document.getElementById('sigChangesBody').classList.add('open');
+      document.getElementById('sigChangesHeader').classList.add('open');
+    }
+  } catch(e) {
+    if (bar) bar.style.display = 'none';
+  }
+}
+
+function renderScGroup(groupId, cardsId, stocks, type) {
+  const group = document.getElementById(groupId);
+  const cards = document.getElementById(cardsId);
+  if (!group || !cards) return;
+  if (stocks.length === 0) { group.style.display = 'none'; return; }
+  group.style.display = '';
+
+  cards.innerHTML = stocks.map(s => {
+    const chgCls  = chgClass(s.change_pct);
+    const prevBadge = `<span style="font-size:9px;padding:1px 4px;border-radius:3px;
+      background:#21262d;color:#8b949e">${s.prev_signal || s.prev_side}</span>`;
+    const curBadge  = `<span class="strength-tag ${strengthClass(s.signal_strength)}"
+      style="font-size:9px">${s.signal_strength}</span>`;
+    const score = type === 'buy'
+      ? `R:${s.right_score} · 成交${fmtAmt(s.avg_amt_yi)}`
+      : `L:${s.left_score} · 成交${fmtAmt(s.avg_amt_yi)}`;
+    return `<div class="sc-card ${type}-card" onclick="jumpToStock('${s.code}','${s.side}')">
+      <div class="sc-card-top">
+        <span class="sc-card-code">${s.code}</span>
+        <span class="sc-card-name" title="${s.name}">${s.name}</span>
+      </div>
+      <div class="sc-arrow">${prevBadge} → ${curBadge}</div>
+      <div class="sc-price-row">
+        <span class="${chgCls}" style="font-weight:700;font-size:12px">${fmt(s.current_price,3)}</span>
+        <span class="${chgCls}" style="font-size:10px">${chgStr(s.change_pct)}</span>
+      </div>
+      <div class="sc-score">${score}</div>
+    </div>`;
+  }).join('');
+}
+
+function jumpToStock(code, side) {
+  // Switch to the correct signal filter and scroll to the stock card
+  const sigMap = {'右侧': '⚡强烈买入', '左侧': '🔴强烈卖出'};
+  // Find the chip for the target signal and click it
+  const targetSig = side === '右侧' ? '⚡强烈买入' : '🔴强烈卖出';
+  const chip = document.querySelector(`.filter-chip[data-signal="${targetSig}"]`);
+  if (chip) setSignalFilter(chip, targetSig);
+  // Scroll card into view after render
+  setTimeout(() => {
+    const card = document.getElementById(`sc-${code}`);
+    if (card) card.scrollIntoView({behavior:'smooth', block:'center'});
+  }, 150);
+}
+
 async function poll() {
   try {
     const statusResp = await fetch('/api/status');
@@ -946,6 +1082,7 @@ async function poll() {
       const closeTime = mkt.close_time;
       setStatus('ready', '数据就绪', closeTime || mkt.last_update);
       await loadScanHistory(currentMarket);
+      loadSignalChanges(currentMarket);
 
       const sb = document.getElementById('statsBar');
       if (sb) {
