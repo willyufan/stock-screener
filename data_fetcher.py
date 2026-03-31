@@ -542,6 +542,214 @@ def get_a_share_stocks(progress_cb=None, full_scan=False, date: str | None = Non
 
 
 # ════════════════════════════════════════════════════════════════
+#  A股 实时扫描（stk_mins 模式）
+#  目标：只对上次扫描的左侧+观望 + 自选股做实时信号更新
+# ════════════════════════════════════════════════════════════════
+
+# 限制并发 stk_mins 调用，避免触发 Tushare 频率限制
+_mins_semaphore = threading.Semaphore(4)
+
+
+def _fetch_today_bar_stk_mins(symbol: str) -> dict | None:
+    """
+    用 stk_mins 拉今日分钟数据，聚合成一根 today bar。
+    返回 dict: {date, open, high, low, close, volume, amount, change_pct}
+    或 None（无数据/非交易日/stk_mins 不可用）
+    """
+    if _ts_pro is None:
+        return None
+    ts_code = _a_to_ts(symbol)
+    today   = _now_cst().strftime('%Y-%m-%d')
+    try:
+        with _mins_semaphore:
+            df = _ts_pro.stk_mins(ts_code=ts_code, freq='1min')
+    except Exception as e:
+        logger.debug(f"stk_mins {symbol} 失败: {e}")
+        return None
+
+    if df is None or df.empty:
+        return None
+
+    df = df.sort_values('trade_time')
+    # 只保留今日数据
+    today_df = df[df['trade_time'].astype(str).str.startswith(today)]
+    if today_df.empty:
+        return None
+
+    # 过滤掉成交量为 0 的占位 bar（非连续撮合时段）
+    active = today_df[today_df['vol'] > 0]
+    if active.empty:
+        return None
+
+    open_  = float(today_df.iloc[0]['open'])
+    high_  = float(today_df['high'].max())
+    low_   = float(today_df['low'].min())
+    close_ = float(today_df.iloc[-1]['close'])
+    vol_   = float(today_df['vol'].sum())
+    amt_   = float(today_df['amount'].sum())
+    return {
+        'date':       today,
+        'open':       open_,
+        'high':       high_,
+        'low':        low_,
+        'close':      close_,
+        'volume':     vol_,
+        'amount':     amt_,
+        'change_pct': None,   # 需要 yesterday close 来算，在 _process_a_stock_realtime 中填充
+    }
+
+
+def _process_a_stock_realtime(symbol: str, meta: dict) -> dict | None:
+    """
+    实时扫描：拉历史日线（截至昨日），追加今日 stk_mins bar，运行信号分析。
+    meta: {名称, 总市值, pe_ttm, pb}
+    """
+    name   = meta.get('名称') or _name_cache.get(symbol, symbol)
+    mktcap = float(meta.get('总市值', 0) or 0)
+    pe_ttm = meta.get('pe_ttm')
+    pb     = meta.get('pb')
+
+    # 拉截至昨日的历史日线
+    yesterday = (_now_cst() - timedelta(days=1)).strftime('%Y%m%d')
+    hist = _fetch_a_hist(symbol, yesterday)
+    if hist is None or len(hist) < 15:
+        return None
+
+    # 拉今日实时 bar
+    today_bar = _fetch_today_bar_stk_mins(symbol)
+    if today_bar:
+        prev_close = float(hist.iloc[-1]['close'])
+        if prev_close > 0:
+            today_bar['change_pct'] = round((today_bar['close'] - prev_close) / prev_close * 100, 2)
+        else:
+            today_bar['change_pct'] = 0.0
+        today_row = pd.DataFrame([today_bar])
+        hist = pd.concat([hist, today_row], ignore_index=True)
+        hist = hist.sort_values('date').reset_index(drop=True)
+
+    if mktcap == 0 and symbol in _share_cache:
+        mktcap = _share_cache[symbol] * 10000 * float(hist.iloc[-1]['close'])
+
+    avg_amt = float(hist.tail(30)['amount'].mean())
+    if avg_amt < MIN_AVG_VOLUME:
+        return None
+
+    top10   = hist.tail(TOP10_DAYS)
+    history = [
+        {
+            'date':       r['date'],
+            'open':       round(float(r['open']), 3),
+            'close':      round(float(r['close']), 3),
+            'high':       round(float(r.get('high', r['close'])), 3),
+            'low':        round(float(r.get('low', r['close'])), 3),
+            'change_pct': round(float(r.get('change_pct', 0) or 0), 2),
+            'amount_yi':  round(float(r['amount']) / 1e8, 2),
+        }
+        for _, r in top10.iterrows()
+    ]
+
+    analysis = classify_stock(hist, pe_ttm=pe_ttm, pb=pb)
+    last = hist.iloc[-1]
+    return {
+        'code':          symbol,
+        'name':          name,
+        'market':        'A股',
+        'market_cap_yi': round(mktcap / 1e8, 1) if mktcap > 0 else None,
+        'avg_amt_yi':    round(avg_amt / 1e8, 2),
+        'current_price': round(float(last['close']), 3),
+        'change_pct':    round(float(last.get('change_pct', 0) or 0), 2),
+        'pe_ttm':        pe_ttm,
+        'history':       history,
+        **analysis,
+    }
+
+
+def get_a_share_stocks_realtime(progress_cb=None,
+                                 prev_history: list | None = None,
+                                 watchlist_codes: list | None = None) -> list[dict]:
+    """
+    实时扫描入口：只扫描上次历史扫描中左侧+观望的股票 + 自选股。
+    用 stk_mins 获取当日实时 bar，追加到历史 K 线后再做信号分析。
+
+    prev_history: 上一次（最近一次日期）的扫描 data（含 left/other 列表）
+    watchlist_codes: 自选股代码列表（6位数字）
+    """
+    if _ts_pro is None:
+        logger.warning("实时扫描需要 Tushare token（分钟权限）")
+        return []
+
+    # ── 构建扫描目标 ─────────────────────────────────────────────
+    target_codes: set[str] = set()
+
+    if prev_history:
+        for s in prev_history.get('left', []):
+            target_codes.add(str(s.get('code', '')).zfill(6))
+        for s in prev_history.get('other', []):
+            target_codes.add(str(s.get('code', '')).zfill(6))
+
+    for code in (watchlist_codes or []):
+        c = str(code).zfill(6)
+        if c.isdigit():
+            target_codes.add(c)
+
+    # 只保留 A股代码（6位数字）
+    target_codes = {c for c in target_codes if c.isdigit() and len(c) == 6}
+
+    if not target_codes:
+        logger.warning("实时扫描：没有目标股票（需先完成历史扫描或添加自选股）")
+        return []
+
+    # ── 获取上次 daily_basic（用于 PE/PB/市值）──────────────────
+    meta_map: dict[str, dict] = {}
+    try:
+        for offset in range(5):
+            td = (_now_cst() - timedelta(days=offset)).strftime('%Y%m%d')
+            db = _ts_pro.daily_basic(
+                trade_date=td,
+                fields='ts_code,total_mv,total_share,pe_ttm,pb'
+            )
+            if db is not None and not db.empty:
+                for _, r in db.iterrows():
+                    code = str(r['ts_code'])[:6]
+                    if code in target_codes:
+                        meta_map[code] = {
+                            '名称':   _name_cache.get(code, code),
+                            '总市值': float(r.get('total_mv', 0) or 0) * 10000,
+                            'pe_ttm': round(float(r['pe_ttm']), 1) if pd.notna(r.get('pe_ttm')) and float(r.get('pe_ttm', 0)) > 0 else None,
+                            'pb':     round(float(r['pb']), 2)     if pd.notna(r.get('pb'))     and float(r.get('pb', 0)) > 0 else None,
+                        }
+                logger.info(f"[实时] daily_basic {td}: {len(meta_map)} 只有元数据")
+                break
+    except Exception as e:
+        logger.warning(f"[实时] daily_basic 获取失败: {e}")
+
+    # 没有 meta 的股票用空 dict
+    for code in target_codes:
+        if code not in meta_map:
+            meta_map[code] = {'名称': _name_cache.get(code, code), '总市值': 0}
+
+    # ── 并发处理 ─────────────────────────────────────────────────
+    logger.info(f"[实时扫描] 目标 {len(target_codes)} 只（左侧+观望+自选股）")
+    results, total, done = [], len(target_codes), 0
+
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
+        futures = {
+            pool.submit(_process_a_stock_realtime, code, meta_map.get(code, {})): code
+            for code in target_codes
+        }
+        for future in as_completed(futures):
+            done += 1
+            if progress_cb:
+                progress_cb('a_share', done, total)
+            r = future.result()
+            if r:
+                results.append(r)
+
+    logger.info(f"[实时扫描] 完成: {len(results)} 只有信号")
+    return results
+
+
+# ════════════════════════════════════════════════════════════════
 #  港股：沪港通成分股
 # ════════════════════════════════════════════════════════════════
 

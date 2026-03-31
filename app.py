@@ -179,6 +179,15 @@ def _build_result(stocks: list) -> dict:
     }
 
 
+def _get_prev_day_data(market: str) -> dict | None:
+    """返回最近一次历史日期（非实时）扫描的 data 字典，用于实时扫描确定目标股票"""
+    history = _load_history(market)
+    for h in history:
+        if not h.get('is_realtime', False):
+            return h.get('data')
+    return None
+
+
 def _refresh(market: str, full_scan: bool = False, date: str | None = None):
     """
     date: YYYYMMDD 指定交易日；None 表示最新
@@ -191,11 +200,23 @@ def _refresh(market: str, full_scan: bool = False, date: str | None = None):
 
     try:
         if market == 'a_share':
-            stocks = data_fetcher.get_a_share_stocks(
-                progress_cb=lambda mk, d, t: _progress_cb(market, d, t),
-                full_scan=full_scan,
-                date=date,
-            )
+            if date:
+                # 历史日期扫描：用 Tushare daily
+                stocks = data_fetcher.get_a_share_stocks(
+                    progress_cb=lambda mk, d, t: _progress_cb(market, d, t),
+                    full_scan=full_scan,
+                    date=date,
+                )
+            else:
+                # 实时扫描：用 stk_mins，只扫左侧+观望+自选股
+                prev_data = _get_prev_day_data(market)
+                wl_codes  = [s['code'] for s in wl_mod.get_watchlist()
+                             if s.get('market', 'A股') == 'A股']
+                stocks = data_fetcher.get_a_share_stocks_realtime(
+                    progress_cb=lambda mk, d, t: _progress_cb(market, d, t),
+                    prev_history=prev_data,
+                    watchlist_codes=wl_codes,
+                )
         else:
             stocks = data_fetcher.get_hk_connect_stocks(
                 progress_cb=lambda mk, d, t: _progress_cb(market, d, t),
@@ -214,19 +235,28 @@ def _refresh(market: str, full_scan: bool = False, date: str | None = None):
             now = f"{date[:4]}-{date[4:6]}-{date[6:]} 收盘"
         else:
             now = _now_cst().strftime('%Y-%m-%d %H:%M:%S')
-        close_time = _close_label(market)
-        result     = _build_result(stocks)
+        close_time  = _close_label(market)
+        result      = _build_result(stocks)
+        is_realtime = (date is None and market == 'a_share')
 
         with _lock:
-            _cache[market] = {
-                'status':      'ready',
-                'last_update': now,
-                'close_time':  close_time,
-                'progress':    None,
-                'data':        result,
-            }
-        _save_cache()
-        _save_to_history(market, result, now, close_time, is_realtime=(date is None))
+            if is_realtime:
+                # 实时扫描只更新状态和时间戳，不覆盖缓存数据（避免部分结果替换完整数据）
+                _cache[market]['status']      = 'ready'
+                _cache[market]['last_update'] = now
+                _cache[market]['realtime_data'] = result
+            else:
+                _cache[market] = {
+                    'status':      'ready',
+                    'last_update': now,
+                    'close_time':  close_time,
+                    'progress':    None,
+                    'data':        result,
+                }
+                _save_cache()
+        if not is_realtime:
+            _save_cache()
+        _save_to_history(market, result, now, close_time, is_realtime=is_realtime)
         logger.info(f"{label} 扫描完成 右侧:{result['stats']['right_count']} "
                     f"左侧:{result['stats']['left_count']} 观望:{result['stats']['other_count']}")
 
@@ -339,16 +369,18 @@ def api_status():
     with _lock:
         base = {
             'a_share': {
-                'status':      _cache['a_share']['status'],
-                'last_update': _cache['a_share']['last_update'],
-                'close_time':  _cache['a_share'].get('close_time') or _close_label('a_share'),
-                'progress':    _cache['a_share'].get('progress'),
+                'status':        _cache['a_share']['status'],
+                'last_update':   _cache['a_share']['last_update'],
+                'close_time':    _cache['a_share'].get('close_time') or _close_label('a_share'),
+                'progress':      _cache['a_share'].get('progress'),
+                'has_realtime':  _cache['a_share'].get('realtime_data') is not None,
             },
             'hk': {
-                'status':      _cache['hk']['status'],
-                'last_update': _cache['hk']['last_update'],
-                'close_time':  _cache['hk'].get('close_time') or _close_label('hk'),
-                'progress':    _cache['hk'].get('progress'),
+                'status':        _cache['hk']['status'],
+                'last_update':   _cache['hk']['last_update'],
+                'close_time':    _cache['hk'].get('close_time') or _close_label('hk'),
+                'progress':      _cache['hk'].get('progress'),
+                'has_realtime':  False,
             },
         }
     with _full_scan_lock:
@@ -528,26 +560,40 @@ def api_watchlist_refresh():
 
 @app.route('/api/signal_changes')
 def api_signal_changes():
-    """比较最新两次不同日期扫描，返回信号明显变化的股票"""
+    """比较当前（实时或最新历史）与上一次不同日期的历史扫描，返回信号明显变化的股票"""
     market  = request.args.get('market', 'a_share')
     history = _load_history(market)
-
-    if len(history) < 2:
-        return jsonify({'buy': [], 'sell': [], 'no_prev': True})
-
-    latest     = history[0]
-    latest_date = latest.get('scan_date', '')
-
-    prev = next((h for h in history[1:] if h.get('scan_date', '') != latest_date), None)
-    if not prev:
-        return jsonify({'buy': [], 'sell': [], 'no_prev': True})
 
     def build_map(data):
         all_s = data.get('right', []) + data.get('left', []) + data.get('other', [])
         return {s['code']: s for s in all_s}
 
-    cur_map  = build_map(latest.get('data', {}))
-    prev_map = build_map(prev.get('data', {}))
+    # 优先用内存中的实时扫描结果作为"当前"
+    with _lock:
+        realtime_data = _cache.get(market, {}).get('realtime_data')
+        rt_time       = _cache.get(market, {}).get('last_update', '')
+
+    # 找最近一次历史日期扫描（非实时）
+    prev_day_hist = next((h for h in history if not h.get('is_realtime', False)), None)
+
+    if realtime_data and prev_day_hist:
+        cur_map      = build_map(realtime_data)
+        prev_map     = build_map(prev_day_hist.get('data', {}))
+        cur_label    = f"实时 {rt_time[11:16]}" if len(rt_time) > 10 else '实时'
+        prev_label   = prev_day_hist.get('label', '')
+    else:
+        # 回退：比较历史最新两条不同日期记录
+        if len(history) < 2:
+            return jsonify({'buy': [], 'sell': [], 'no_prev': True})
+        latest = history[0]
+        latest_date = latest.get('scan_date', '')
+        prev = next((h for h in history[1:] if h.get('scan_date', '') != latest_date), None)
+        if not prev:
+            return jsonify({'buy': [], 'sell': [], 'no_prev': True})
+        cur_map    = build_map(latest.get('data', {}))
+        prev_map   = build_map(prev.get('data', {}))
+        cur_label  = latest.get('label', latest_date)
+        prev_label = prev.get('label', prev.get('scan_date', ''))
 
     buy_changes  = []
     sell_changes = []
@@ -573,8 +619,8 @@ def api_signal_changes():
     return jsonify({
         'buy':           buy_changes,
         'sell':          sell_changes,
-        'current_label': latest.get('label', latest_date),
-        'prev_label':    prev.get('label', prev.get('scan_date', '')),
+        'current_label': cur_label,
+        'prev_label':    prev_label,
     })
 
 

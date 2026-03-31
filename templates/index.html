@@ -1080,7 +1080,8 @@ async function poll() {
       };
 
       const closeTime = mkt.close_time;
-      setStatus('ready', '数据就绪', closeTime || mkt.last_update);
+      const statusLabel = mkt.has_realtime ? '⚡ 实时扫描已更新' : '数据就绪';
+      setStatus('ready', statusLabel, closeTime || mkt.last_update);
       await loadScanHistory(currentMarket);
       loadSignalChanges(currentMarket);
 
