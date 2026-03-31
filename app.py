@@ -89,7 +89,8 @@ def _load_history(market: str) -> list:
     except Exception:
         return []
 
-def _save_to_history(market: str, result: dict, scan_time: str, close_time: str | None):
+def _save_to_history(market: str, result: dict, scan_time: str, close_time: str | None,
+                     is_realtime: bool = False):
     history = _load_history(market)
     scan_date = scan_time[:10]   # 'YYYY-MM-DD'
     snapshot = {
@@ -97,13 +98,19 @@ def _save_to_history(market: str, result: dict, scan_time: str, close_time: str 
         'scan_date':     scan_date,
         'close_time':    close_time,
         'is_close_data': close_time is not None and scan_time[:16] >= close_time[:16],
-        'label':         scan_date,   # 以日为单位展示
+        'is_realtime':   is_realtime,
+        # 实时扫描保留日期+时间，历史日期扫描只保留日期（同日去重）
+        'label':         scan_time[:16] if is_realtime else scan_date,
         'stats':         result['stats'],
         'data':          result,
     }
-    # 去重：同一日期只保留最新一条
-    history = [h for h in history if h.get('scan_date') != scan_date]
-    history.insert(0, snapshot)
+    if is_realtime:
+        # 实时扫描不按日期去重，每次都保留（最多30条实时记录混合历史）
+        history.insert(0, snapshot)
+    else:
+        # 历史日期扫描：同一日期只保留最新一条
+        history = [h for h in history if h.get('scan_date') != scan_date]
+        history.insert(0, snapshot)
     history = history[:_HISTORY_MAX]
     with open(_history_file(market), 'w', encoding='utf-8') as f:
         json.dump(history, f, ensure_ascii=False)
@@ -219,7 +226,7 @@ def _refresh(market: str, full_scan: bool = False, date: str | None = None):
                 'data':        result,
             }
         _save_cache()
-        _save_to_history(market, result, now, close_time)
+        _save_to_history(market, result, now, close_time, is_realtime=(date is None))
         logger.info(f"{label} 扫描完成 右侧:{result['stats']['right_count']} "
                     f"左侧:{result['stats']['left_count']} 观望:{result['stats']['other_count']}")
 

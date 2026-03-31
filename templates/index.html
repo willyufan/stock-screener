@@ -351,10 +351,21 @@ header{flex-shrink:0;background:#161b22;border-bottom:1px solid #30363d;
       <div id="scanPicker" style="display:none;position:absolute;top:calc(100% + 8px);right:0;
         background:#161b22;border:1px solid #30363d;border-radius:10px;padding:14px 16px;
         min-width:240px;z-index:300;box-shadow:0 8px 24px rgba(0,0,0,.5)">
-        <div style="font-size:12px;color:#8b949e;margin-bottom:8px;font-weight:600">选择交易日期</div>
-        <input type="date" id="scanDateInput" style="width:100%;padding:6px 8px;background:#21262d;
-          border:1px solid #30363d;border-radius:6px;color:#e6edf3;font-size:13px;margin-bottom:10px"
-          onkeydown="if(event.key==='Enter')doScan()"/>
+        <!-- Mode toggle -->
+        <div style="display:flex;border:1px solid #30363d;border-radius:6px;overflow:hidden;margin-bottom:10px">
+          <button id="scanModeRt" onclick="setScanMode('realtime')"
+            style="flex:1;padding:5px 0;border:none;cursor:pointer;font-size:12px;font-weight:600;
+                   background:#1a3a1a;color:#3fb950;transition:all .15s">实时</button>
+          <button id="scanModeHist" onclick="setScanMode('history')"
+            style="flex:1;padding:5px 0;border:none;cursor:pointer;font-size:12px;font-weight:600;
+                   background:transparent;color:#8b949e;transition:all .15s">历史日期</button>
+        </div>
+        <!-- Date input (only in history mode) -->
+        <div id="scanDateWrap" style="display:none">
+          <input type="date" id="scanDateInput" style="width:100%;padding:6px 8px;background:#21262d;
+            border:1px solid #30363d;border-radius:6px;color:#e6edf3;font-size:13px;margin-bottom:10px;box-sizing:border-box"
+            onkeydown="if(event.key==='Enter')doScan()"/>
+        </div>
         <div style="display:flex;gap:7px">
           <button onclick="doScan()" style="flex:1;padding:6px;border-radius:6px;border:1px solid #238636;
             background:#1a3a1a;color:#3fb950;cursor:pointer;font-size:12px;font-weight:600">▶ 扫描</button>
@@ -978,13 +989,31 @@ function _lastTradingDay() {
   return bj.toISOString().slice(0, 10);
 }
 
+let scanMode = 'realtime';
+
+function setScanMode(mode) {
+  scanMode = mode;
+  const wrap  = document.getElementById('scanDateWrap');
+  const btnRt = document.getElementById('scanModeRt');
+  const btnHi = document.getElementById('scanModeHist');
+  if (mode === 'realtime') {
+    wrap.style.display = 'none';
+    btnRt.style.background = '#1a3a1a'; btnRt.style.color = '#3fb950';
+    btnHi.style.background = 'transparent'; btnHi.style.color = '#8b949e';
+  } else {
+    wrap.style.display = '';
+    const input = document.getElementById('scanDateInput');
+    if (!input.value) input.value = _lastTradingDay();
+    input.max = new Date().toISOString().slice(0, 10);
+    btnHi.style.background = '#1a3a1a'; btnHi.style.color = '#3fb950';
+    btnRt.style.background = 'transparent'; btnRt.style.color = '#8b949e';
+    setTimeout(() => input.focus(), 50);
+  }
+}
+
 function openScanPicker() {
   const picker = document.getElementById('scanPicker');
-  const input  = document.getElementById('scanDateInput');
-  if (!input.value) input.value = _lastTradingDay();
-  input.max = new Date().toISOString().slice(0, 10);
   picker.style.display = picker.style.display === 'none' ? '' : 'none';
-  if (picker.style.display !== 'none') setTimeout(() => input.focus(), 50);
 }
 
 function closeScanPicker() {
@@ -1001,9 +1030,8 @@ document.addEventListener('click', e => {
 });
 
 async function doScan() {
-  const input = document.getElementById('scanDateInput');
-  const msg   = document.getElementById('scanPickerMsg');
-  const date  = input ? input.value : '';
+  const msg  = document.getElementById('scanPickerMsg');
+  const date = scanMode === 'history' ? (document.getElementById('scanDateInput').value || '') : '';
   msg.style.display = 'none';
 
   try {
@@ -1107,8 +1135,8 @@ async function loadScanHistory(market) {
     list.forEach(h => {
       const opt = document.createElement('option');
       opt.value = h.scan_time;
-      opt.textContent = (h.is_close_data ? '📌 ' : '○ ') + h.label +
-        ` (右${h.stats.right_count}/左${h.stats.left_count})`;
+      const icon = h.is_realtime ? '⚡ ' : (h.is_close_data ? '📌 ' : '○ ');
+      opt.textContent = icon + h.label + ` (右${h.stats.right_count}/左${h.stats.left_count})`;
       sel.appendChild(opt);
     });
     sel.style.display = list.length > 0 ? '' : 'none';
