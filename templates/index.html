@@ -369,6 +369,28 @@ header{flex-shrink:0;background:#161b22;border-bottom:1px solid #30363d;
 .settings-save-btn:hover{background:#1f4a1f}
 .settings-save-btn:disabled{opacity:.5;cursor:default}
 .settings-msg{font-size:12px;margin-top:10px;min-height:18px}
+
+/* ── Backtest ─────────────────────────────────────── */
+.bt-panel{border:1px solid #21262d;border-radius:8px;padding:12px 14px;background:#0d1117;margin-top:4px}
+.bt-form-row{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin-bottom:10px}
+.bt-form-row label{display:block;font-size:10px;color:#8b949e;margin-bottom:3px}
+.bt-form-row input[type=date]{padding:5px 7px;background:#21262d;border:1px solid #30363d;
+  border-radius:5px;color:#e6edf3;font-size:12px;width:130px}
+.bt-run-btn{padding:5px 14px;border-radius:6px;border:1px solid #6e40c9;
+  background:#1a1a3a;color:#d2a8ff;cursor:pointer;font-size:12px;font-weight:600;transition:.15s;white-space:nowrap}
+.bt-run-btn:hover{background:#21212f}
+.bt-run-btn:disabled{opacity:.5;cursor:not-allowed}
+.bt-metrics{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin:10px 0}
+.bt-kpi{background:#161b22;border:1px solid #21262d;border-radius:6px;padding:8px 10px;text-align:center}
+.bt-kpi-label{font-size:9px;color:#8b949e;margin-bottom:3px}
+.bt-kpi-value{font-size:15px;font-weight:700;font-family:monospace}
+.bt-chart-wrap{background:#161b22;border:1px solid #21262d;border-radius:8px;padding:10px;height:160px;margin:8px 0}
+.bt-msg{font-size:11px;color:#8b949e;padding:8px 0}
+.bt-history-row{display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap}
+.bt-history-item{font-size:10px;padding:3px 8px;border-radius:4px;border:1px solid #30363d;
+  background:#21262d;color:#8b949e;cursor:pointer;transition:.12s}
+.bt-history-item:hover{border-color:#58a6ff;color:#58a6ff}
+@media(max-width:900px){.bt-metrics{grid-template-columns:repeat(3,1fr)}}
 </style>
 </head>
 <body>
@@ -745,6 +767,24 @@ header{flex-shrink:0;background:#161b22;border-bottom:1px solid #30363d;
         <button onclick="runAutoScan('positions')" class="btn" style="flex:1;font-size:11px;padding:4px 0" title="持仓扫描（止损/止盈/离场）">↻ 持仓扫描</button>
       </div>
 
+      <!-- Backtest data store panel -->
+      <div style="padding:8px 12px;border-bottom:1px solid #21262d">
+        <div style="font-size:10px;color:#8b949e;font-weight:600;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">
+          📊 回测数据库
+        </div>
+        <div id="btStoreInfo" style="font-size:11px;color:#8b949e;margin-bottom:6px">加载中…</div>
+        <div style="display:flex;gap:5px;align-items:center">
+          <select id="btBuildDays" style="flex:1;padding:3px 5px;background:#21262d;border:1px solid #30363d;border-radius:4px;color:#e6edf3;font-size:11px">
+            <option value="30">近30天</option>
+            <option value="90" selected>近90天</option>
+            <option value="180">近180天</option>
+            <option value="365">近365天</option>
+          </select>
+          <button class="btn" id="btBuildBtn" onclick="buildBtStore()" style="font-size:11px;padding:3px 8px;white-space:nowrap">⬇ 建立</button>
+        </div>
+        <div id="btBuildProgress" style="display:none;margin-top:5px;font-size:10px;color:#d29922"></div>
+      </div>
+
       <div style="padding:6px 10px 2px;font-size:10px;color:#8b949e;font-weight:600;text-transform:uppercase;letter-spacing:.5px">实例列表</div>
       <div class="strat-list" id="autoStratList">
         <div style="padding:20px;text-align:center;color:#8b949e;font-size:12px">暂无策略实例</div>
@@ -837,7 +877,7 @@ function switchTab(tabId) {
   if (map[tabId] !== undefined) tabs[map[tabId]].classList.add('active');
   if (tabId === 'watchlist')     loadWatchlist();
   if (tabId === 'strategy')      loadStrategies();
-  if (tabId === 'auto_strategy') loadAutoStrategies();
+  if (tabId === 'auto_strategy') { loadAutoStrategies(); loadBtStoreInfo(); }
   if (tabId === 'settings')      loadConfig();
 }
 
@@ -2038,7 +2078,18 @@ function renderStrategyDetail(s) {
       策略参数：${s.type} | 初始资金 ${(s.initial_capital/10000).toFixed(0)}万 |
       入场：${(s.entry_signals||[]).join('/')} | 离场：${(s.exit_signals||[]).join('/')} |
       单仓止损 ${s.position_stop_loss}% | 止盈 ${s.position_take_profit > 0 ? s.position_take_profit+'%' : '不启用'} | 组合止损 ${s.portfolio_stop}%
-    </div>`;
+    </div>
+    ${renderBtSection('manual_' + s.id, {
+        mode: 'manual',
+        initial_capital:      s.initial_capital,
+        max_positions:        s.max_positions,
+        entry_signals:        s.entry_signals,
+        exit_signals:         s.exit_signals,
+        position_stop_loss:   s.position_stop_loss,
+        position_take_profit: s.position_take_profit || 0,
+        portfolio_stop:       s.portfolio_stop,
+    })}`;
+
 
   // Render nav chart
   renderNavChart(s.nav_history || []);
@@ -2353,7 +2404,13 @@ function renderAutoInstanceDetail(inst) {
 
     <div style="font-size:10px;color:#6e7681;margin-top:6px;padding:8px 0;border-top:1px solid #21262d">
       ${paramsTxt}
-    </div>`;
+    </div>
+    ${renderBtSection('auto_' + inst.instance_id, {
+        mode: 'auto',
+        strategy_id: inst.strategy_id,
+        name:        inst.name || inst.strategy_name,
+        params:      inst.params || {},
+    })}`;
 
   // Render NAV chart
   renderAutoNavChart(state.nav_history || []);
@@ -2470,6 +2527,260 @@ async function runAutoScan(scanType, refreshDetail) {
       selectAutoInstance(selectedAutoInstId);
     }
   } catch(e) { showToast('扫描请求失败', 'error'); }
+}
+
+// ══════════════════════════════════════════════
+// Backtest
+// ══════════════════════════════════════════════
+let _btCharts = {};   // panelKey → Chart instance
+let _btStoreInfoTimer = null;
+
+// Render a collapsible backtest section (returns HTML string)
+function renderBtSection(panelKey, config) {
+  const escaped = JSON.stringify(config).replace(/'/g, "\\'").replace(/"/g, '&quot;');
+  return `
+    <div class="strat-section" style="margin-top:16px">
+      <div class="strat-section-title" style="cursor:pointer;display:flex;align-items:center;gap:6px"
+           onclick="toggleBtPanel('${panelKey}')">
+        📈 历史回测
+        <span id="bt-toggle-${panelKey}" style="font-size:10px;color:#8b949e;transition:.15s">▶</span>
+        <span id="bt-result-badge-${panelKey}" style="font-size:10px;margin-left:auto"></span>
+      </div>
+      <div id="bt-panel-${panelKey}" style="display:none;margin-top:8px">
+        <div class="bt-panel">
+          <div class="bt-form-row">
+            <div>
+              <label>开始日期</label>
+              <input type="date" id="bt-start-${panelKey}" style="width:130px"/>
+            </div>
+            <div>
+              <label>结束日期</label>
+              <input type="date" id="bt-end-${panelKey}" style="width:130px"/>
+            </div>
+            <div style="align-self:flex-end">
+              <button class="bt-run-btn" id="bt-btn-${panelKey}"
+                onclick="runBacktest('${panelKey}', JSON.parse(this.dataset.cfg))"
+                data-cfg="${escaped}">▶ 运行回测</button>
+            </div>
+          </div>
+          <div id="bt-msg-${panelKey}" class="bt-msg"></div>
+          <div id="bt-result-${panelKey}"></div>
+        </div>
+      </div>
+    </div>`;
+}
+
+async function toggleBtPanel(panelKey) {
+  const panel   = document.getElementById('bt-panel-' + panelKey);
+  const toggle  = document.getElementById('bt-toggle-' + panelKey);
+  if (!panel) return;
+  const isOpen = panel.style.display !== 'none';
+  panel.style.display = isOpen ? 'none' : '';
+  if (toggle) toggle.textContent = isOpen ? '▶' : '▼';
+  if (!isOpen) {
+    // Pre-fill dates from store
+    try {
+      const info = await fetch('/api/backtest/store_info?market=a_share').then(r => r.json());
+      const s = document.getElementById('bt-start-' + panelKey);
+      const e = document.getElementById('bt-end-'   + panelKey);
+      if (s && !s.value && info.min_date) s.value = info.min_date;
+      if (e && !e.value && info.max_date) e.value = info.max_date;
+    } catch(_) {}
+  }
+}
+
+async function runBacktest(panelKey, baseConfig) {
+  const start = document.getElementById('bt-start-' + panelKey)?.value;
+  const end   = document.getElementById('bt-end-'   + panelKey)?.value;
+  const msg   = document.getElementById('bt-msg-'   + panelKey);
+  const btn   = document.getElementById('bt-btn-'   + panelKey);
+  const res   = document.getElementById('bt-result-'+ panelKey);
+
+  if (!start || !end) { if (msg) msg.textContent = '请选择日期范围'; return; }
+  if (start > end)    { if (msg) msg.textContent = '开始日期不能晚于结束日期'; return; }
+
+  if (btn) { btn.disabled = true; btn.textContent = '运行中…'; }
+  if (msg) msg.textContent = '';
+  if (res) res.innerHTML = '';
+
+  const config = {
+    ...baseConfig,
+    start_date: start,
+    end_date:   end,
+    name:       (baseConfig.name || '回测') + ` (${start}~${end})`,
+    market:     'a_share',
+  };
+
+  try {
+    const resp = await fetch('/api/backtest/run', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(config),
+    });
+    const data = await resp.json();
+    if (data.error) {
+      if (msg) { msg.style.color = '#f85149'; msg.textContent = data.error; }
+    } else {
+      renderBacktestResult(panelKey, data);
+    }
+  } catch(e) {
+    if (msg) { msg.style.color = '#f85149'; msg.textContent = '请求失败: ' + e; }
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '▶ 运行回测'; }
+  }
+}
+
+function renderBacktestResult(panelKey, bt) {
+  const res   = document.getElementById('bt-result-' + panelKey);
+  const badge = document.getElementById('bt-result-badge-' + panelKey);
+  if (!res) return;
+
+  const m    = bt.metrics || {};
+  const ret  = m.total_return_pct ?? 0;
+  const rc   = ret >= 0 ? '#3fb950' : '#f85149';
+  const ddc  = (m.max_drawdown_pct ?? 0) <= -10 ? '#f85149' : (m.max_drawdown_pct ?? 0) <= -5 ? '#f0883e' : '#8b949e';
+
+  if (badge) badge.innerHTML = `<span style="color:${rc};font-weight:600">${ret>=0?'+':''}${ret.toFixed(1)}%</span>`;
+
+  const trades = (bt.trades || []).filter(t => t.type === 'sell').slice(-30).reverse();
+  const tradeRows = trades.map(t => `<tr>
+    <td>${(t.date||'').slice(5)}</td>
+    <td><b>${t.code}</b></td>
+    <td style="color:#8b949e">${t.name||''}</td>
+    <td style="font-family:monospace">${t.price}</td>
+    <td>${(t.shares||0).toLocaleString()}</td>
+    <td><span class="${(t.pnl_pct||0)>=0?'pos-pnl-pos':'pos-pnl-neg'}">${(t.pnl_pct||0)>=0?'+':''}${(t.pnl_pct||0).toFixed(1)}%</span></td>
+    <td style="font-size:10px;color:#6e7681">${t.reason||''}</td>
+  </tr>`).join('') || '<tr class="no-data-row"><td colspan="7">无卖出记录</td></tr>';
+
+  const canvasId = 'bt-chart-' + panelKey;
+  res.innerHTML = `
+    <div style="font-size:10px;color:#8b949e;margin-bottom:6px">
+      回测区间 ${bt.start_date} ~ ${bt.end_date} · ${bt.n_days} 个交易日
+    </div>
+    <div class="bt-metrics">
+      <div class="bt-kpi"><div class="bt-kpi-label">总收益</div>
+        <div class="bt-kpi-value" style="color:${rc}">${ret>=0?'+':''}${ret.toFixed(1)}%</div></div>
+      <div class="bt-kpi"><div class="bt-kpi-label">年化收益</div>
+        <div class="bt-kpi-value" style="color:${rc}">${(m.annualized_return_pct??0)>=0?'+':''}${(m.annualized_return_pct??0).toFixed(1)}%</div></div>
+      <div class="bt-kpi"><div class="bt-kpi-label">最大回撤</div>
+        <div class="bt-kpi-value" style="color:${ddc}">${(m.max_drawdown_pct??0).toFixed(1)}%</div></div>
+      <div class="bt-kpi"><div class="bt-kpi-label">胜率</div>
+        <div class="bt-kpi-value">${(m.win_rate??0).toFixed(0)}%</div></div>
+      <div class="bt-kpi"><div class="bt-kpi-label">交易 买/卖</div>
+        <div class="bt-kpi-value" style="font-size:14px">${m.total_buy_trades||0} / ${m.total_sell_trades||0}</div></div>
+    </div>
+    <div style="font-size:10px;color:#8b949e;margin-bottom:6px">
+      均笔盈亏 <b style="color:${(m.avg_trade_pnl||0)>=0?'#3fb950':'#f85149'}">${(m.avg_trade_pnl||0)>=0?'+':''}${(m.avg_trade_pnl||0).toFixed(2)}%</b>
+      &nbsp;·&nbsp; 末日净值 <b style="color:${rc}">${(m.final_nav||1).toFixed(4)}</b>
+      &nbsp;·&nbsp; 末日资金 <b>${((bt.final_capital||0)/10000).toFixed(1)}万</b>
+    </div>
+    <div class="bt-chart-wrap"><canvas id="${canvasId}"></canvas></div>
+    <div style="font-size:11px;font-weight:600;color:#8b949e;margin:8px 0 4px;text-transform:uppercase;letter-spacing:.4px">
+      卖出记录（最近30条）
+    </div>
+    <div style="overflow-x:auto">
+      <table class="mini-table">
+        <thead><tr><th>日期</th><th>代码</th><th>名称</th><th>价格</th><th>股数</th><th>盈亏</th><th>原因</th></tr></thead>
+        <tbody>${tradeRows}</tbody>
+      </table>
+    </div>`;
+
+  // Draw NAV chart
+  setTimeout(() => renderBtNavChart(canvasId, panelKey, bt.nav_history || []), 50);
+}
+
+function renderBtNavChart(canvasId, panelKey, navHistory) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  if (_btCharts[panelKey]) { _btCharts[panelKey].destroy(); delete _btCharts[panelKey]; }
+  if (!navHistory || navHistory.length === 0) return;
+
+  const labels = navHistory.map(h => h.date ? h.date.slice(5) : '');
+  const vals   = navHistory.map(h => h.nav);
+  const last   = vals[vals.length - 1];
+  const lc     = last >= 1 ? '#3fb950' : '#f85149';
+
+  _btCharts[panelKey] = new Chart(canvas, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        { data: vals, borderColor: lc, backgroundColor: lc + '22',
+          borderWidth: 2, fill: true, tension: 0.3,
+          pointRadius: vals.length > 60 ? 0 : 2, label: '净值' },
+        { data: new Array(vals.length).fill(1.0),
+          borderColor: '#30363d', borderWidth: 1, borderDash: [4, 3],
+          pointRadius: 0, fill: false, label: '基准' },
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: ctx => `净值 ${ctx.parsed.y.toFixed(4)}` } }
+      },
+      scales: {
+        x: { ticks: { color: '#8b949e', font: {size:9}, maxTicksLimit: 10 }, grid: { color: '#21262d' } },
+        y: { ticks: { color: '#8b949e', font: {size:9} }, grid: { color: '#21262d' } }
+      }
+    }
+  });
+}
+
+// ── 回测数据库面板 ───────────────────────────────────────────────────────────
+let _btBuildTimer = null;
+
+async function loadBtStoreInfo() {
+  try {
+    const info = await fetch('/api/backtest/store_info?market=a_share').then(r => r.json());
+    const el   = document.getElementById('btStoreInfo');
+    if (!el) return;
+    if (info.n_days === 0) {
+      el.innerHTML = '<span style="color:#f0883e">暂无数据</span>，请点击"建立"拉取历史';
+    } else {
+      el.innerHTML = `<b style="color:#e6edf3">${info.n_days}</b> 个交易日 · ${info.min_date} ~ ${info.max_date}`;
+    }
+    // Build progress
+    const b = info.build || {};
+    const prog = document.getElementById('btBuildProgress');
+    if (b.running && prog) {
+      prog.style.display = '';
+      prog.textContent = `⏳ 构建中 ${b.done}/${b.total} (${b.last_date})`;
+      if (!_btBuildTimer) {
+        _btBuildTimer = setInterval(loadBtStoreInfo, 5000);
+      }
+    } else {
+      if (prog) prog.style.display = 'none';
+      if (_btBuildTimer) { clearInterval(_btBuildTimer); _btBuildTimer = null; }
+    }
+  } catch(_) {}
+}
+
+async function buildBtStore() {
+  const btn  = document.getElementById('btBuildBtn');
+  const days = parseInt(document.getElementById('btBuildDays')?.value) || 90;
+  if (btn) btn.disabled = true;
+  try {
+    const resp = await fetch('/api/backtest/build_store', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({days, market: 'a_share'}),
+    });
+    const data = await resp.json();
+    if (data.status === 'already_running') {
+      showToast('数据构建已在进行中', 'warn');
+    } else {
+      showToast(`⬇ 开始拉取近 ${days} 天历史数据（后台运行）`);
+      const prog = document.getElementById('btBuildProgress');
+      if (prog) { prog.style.display = ''; prog.textContent = '⏳ 启动中…'; }
+      if (!_btBuildTimer) _btBuildTimer = setInterval(loadBtStoreInfo, 5000);
+    }
+  } catch(e) {
+    showToast('构建请求失败', 'error');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
 }
 
 // ══════════════════════════════════════════════
