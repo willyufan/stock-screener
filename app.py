@@ -95,6 +95,7 @@ import data_fetcher
 import dcf_calc
 import watchlist as wl_mod
 import strategy as strat_mod
+import backtest as bt_mod
 from auto_strategy import engine as auto_engine
 import auto_strategy.strategies.kelly_signal  # noqa: F401 — triggers @register
 
@@ -352,6 +353,13 @@ def _refresh(market: str, full_scan: bool = False, date: str | None = None):
         if not is_realtime:
             _save_cache()
         _save_to_history(market, result, now, close_time, is_realtime=is_realtime)
+
+        # 非实时日线扫描 → 自动追加到回测数据仓库
+        if not is_realtime:
+            try:
+                bt_mod.update_store(market, result, now[:10], now)
+            except Exception as e:
+                logger.warning(f"更新回测仓库失败: {e}")
         logger.info(f"{label} 扫描完成 右侧:{result['stats']['right_count']} "
                     f"左侧:{result['stats']['left_count']} 观望:{result['stats']['other_count']}")
 
@@ -933,6 +941,58 @@ def api_dcf_search():
         if len(results) >= 20:
             break
     return jsonify(results[:20])
+
+
+# ── 回测路由 ──────────────────────────────────────────────────────────────────
+
+@app.route('/api/backtest/store_info')
+def api_bt_store_info():
+    market = request.args.get('market', 'a_share')
+    info   = bt_mod.store_info(market)
+    status = bt_mod.build_status()
+    return jsonify({**info, 'build': status})
+
+
+@app.route('/api/backtest/build_store', methods=['POST'])
+def api_bt_build():
+    """后台异步拉取历史数据并写入回测仓库"""
+    body   = request.json or {}
+    days   = int(body.get('days', 90))
+    market = body.get('market', 'a_share')
+    status = bt_mod.build_status()
+    if status['running']:
+        return jsonify({'status': 'already_running', 'build': status})
+    bt_mod.build_store_async(days=days, market=market)
+    return jsonify({'status': 'started', 'days': days, 'market': market})
+
+
+@app.route('/api/backtest/list')
+def api_bt_list():
+    return jsonify(bt_mod.list_backtests())
+
+
+@app.route('/api/backtest/run', methods=['POST'])
+def api_bt_run():
+    config = request.json or {}
+    market = config.pop('market', 'a_share')
+    result = bt_mod.run_backtest(config, market)
+    if 'error' in result:
+        return jsonify(result), 400
+    return jsonify(result)
+
+
+@app.route('/api/backtest/<bt_id>')
+def api_bt_get(bt_id):
+    bt = bt_mod.get_backtest(bt_id)
+    if not bt:
+        return jsonify({'error': 'not found'}), 404
+    return jsonify(bt)
+
+
+@app.route('/api/backtest/<bt_id>', methods=['DELETE'])
+def api_bt_delete(bt_id):
+    ok = bt_mod.delete_backtest(bt_id)
+    return jsonify({'ok': ok})
 
 
 # ── 启动 ──────────────────────────────────────────────────────────────────────
