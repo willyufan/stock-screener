@@ -217,15 +217,17 @@ def run_backtest(config: dict, market: str = 'a_share') -> dict:
 
 # ── 内部：仓库构建 ────────────────────────────────────────────────────────────
 
-def _trading_days_back(n: int) -> list[str]:
-    """返回最近 n 个工作日（周一到周五）的日期列表，升序"""
+def _weekdays_in_range(calendar_days: int) -> list[str]:
+    """返回最近 calendar_days 个自然日内的工作日列表（升序，YYYYMMDD）。
+    节假日由 Tushare 返回空数据自动跳过，此处仅排除周末。"""
+    today  = datetime.now(tz=_CST).date()
+    start  = today - timedelta(days=calendar_days)
     result = []
-    d = datetime.now(tz=_CST).date()
-    while len(result) < n:
+    d = start
+    while d <= today:
         if d.weekday() < 5:          # Mon-Fri
             result.append(d.strftime('%Y%m%d'))
-        d -= timedelta(days=1)
-    result.reverse()
+        d += timedelta(days=1)
     return result
 
 
@@ -239,7 +241,7 @@ def _build_store(days: int, market: str):
                               'market': market, 'last_date': '', 'error': ''})
 
     existing = set(available_dates(market))
-    candidates = _trading_days_back(days)
+    candidates = _weekdays_in_range(days)          # days = 自然日数
     to_fetch = [d for d in candidates if
                 datetime.strptime(d, '%Y%m%d').strftime('%Y-%m-%d') not in existing]
 
