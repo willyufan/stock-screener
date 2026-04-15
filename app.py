@@ -89,20 +89,63 @@ def _load_history(market: str) -> list:
     except Exception:
         return []
 
+def _compute_signal_changes(cur_data: dict, prev_data: dict) -> dict:
+    """对比两次扫描数据，返回信号明显变化的股票列表。"""
+    def build_map(data):
+        all_s = data.get('right', []) + data.get('left', []) + data.get('other', [])
+        return {s['code']: s for s in all_s}
+
+    cur_map  = build_map(cur_data)
+    prev_map = build_map(prev_data)
+    buy_changes, sell_changes = [], []
+
+    for code, cur in cur_map.items():
+        prev_s = prev_map.get(code)
+        if not prev_s:
+            continue
+        cur_sig   = cur.get('signal_strength', '')
+        prev_side = prev_s.get('side', '')
+        prev_sig  = prev_s.get('signal_strength', '')
+        if cur_sig == prev_sig:
+            continue
+        if cur_sig == '⚡强烈买入' and prev_side in ('观望', '左侧'):
+            buy_changes.append({**cur, 'prev_side': prev_side, 'prev_signal': prev_sig})
+        elif cur_sig == '🔴强烈卖出' and prev_side in ('右侧', '观望'):
+            sell_changes.append({**cur, 'prev_side': prev_side, 'prev_signal': prev_sig})
+
+    buy_changes.sort(key=lambda x: x.get('right_score', 0), reverse=True)
+    sell_changes.sort(key=lambda x: x.get('left_score', 0), reverse=True)
+    return {'buy': buy_changes, 'sell': sell_changes}
+
+
 def _save_to_history(market: str, result: dict, scan_time: str, close_time: str | None,
                      is_realtime: bool = False):
     history = _load_history(market)
     scan_date = scan_time[:10]   # 'YYYY-MM-DD'
+
+    # 找上一次不同日期的历史扫描，用于计算信号变化
+    prev_day = next(
+        (h for h in history if not h.get('is_realtime', False) and h.get('scan_date', '') != scan_date),
+        None
+    )
+    sig_changes = {}
+    if prev_day:
+        try:
+            sig_changes = _compute_signal_changes(result, prev_day.get('data', {}))
+            sig_changes['prev_label'] = prev_day.get('label', prev_day.get('scan_date', ''))
+        except Exception:
+            pass
+
     snapshot = {
-        'scan_time':     scan_time,
-        'scan_date':     scan_date,
-        'close_time':    close_time,
-        'is_close_data': close_time is not None and scan_time[:16] >= close_time[:16],
-        'is_realtime':   is_realtime,
-        # 实时扫描保留日期+时间，历史日期扫描只保留日期（同日去重）
-        'label':         scan_time[:16] if is_realtime else scan_date,
-        'stats':         result['stats'],
-        'data':          result,
+        'scan_time':      scan_time,
+        'scan_date':      scan_date,
+        'close_time':     close_time,
+        'is_close_data':  close_time is not None and scan_time[:16] >= close_time[:16],
+        'is_realtime':    is_realtime,
+        'label':          scan_time[:16] if is_realtime else scan_date,
+        'stats':          result['stats'],
+        'signal_changes': sig_changes,
+        'data':           result,
     }
     if is_realtime:
         # 实时扫描不按日期去重，每次都保留（最多30条实时记录混合历史）
@@ -493,11 +536,14 @@ def api_scan_history():
     history = _load_history(market)
     # 只返回元信息，不含完整data
     return jsonify([{
-        'scan_time':     h['scan_time'],
-        'close_time':    h.get('close_time'),
-        'is_close_data': h.get('is_close_data', False),
-        'label':         h.get('label', h['scan_time']),
-        'stats':         h['stats'],
+        'scan_time':         h['scan_time'],
+        'close_time':        h.get('close_time'),
+        'is_close_data':     h.get('is_close_data', False),
+        'is_realtime':       h.get('is_realtime', False),
+        'label':             h.get('label', h['scan_time']),
+        'stats':             h['stats'],
+        'has_sig_changes':   bool(h.get('signal_changes', {}).get('buy') or
+                                  h.get('signal_changes', {}).get('sell')),
     } for h in history])
 
 
@@ -512,12 +558,15 @@ def api_stocks_snapshot():
         return jsonify({'error': 'not found'}), 404
     data = snap['data']
     stocks = data['right'] + data['left'] + data['other']
+    sc = snap.get('signal_changes', {})
     return jsonify({
-        'status':      'ready',
-        'last_update': snap['scan_time'],
-        'close_time':  snap.get('close_time'),
-        'stats':       data['stats'],
-        'stocks':      stocks,
+        'status':         'ready',
+        'last_update':    snap['scan_time'],
+        'close_time':     snap.get('close_time'),
+        'is_realtime':    snap.get('is_realtime', False),
+        'stats':          data['stats'],
+        'stocks':         stocks,
+        'signal_changes': sc,
     })
 
 

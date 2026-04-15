@@ -1345,7 +1345,8 @@ async function loadScanHistory(market) {
       const opt = document.createElement('option');
       opt.value = h.scan_time;
       const icon = h.is_realtime ? '⚡ ' : (h.is_close_data ? '📌 ' : '○ ');
-      opt.textContent = icon + h.label + ` (右${h.stats.right_count}/左${h.stats.left_count})`;
+      const sc   = h.has_sig_changes ? ' 📡' : '';
+      opt.textContent = icon + h.label + ` (右${h.stats.right_count}/左${h.stats.left_count})` + sc;
       sel.appendChild(opt);
     });
     sel.style.display = list.length > 0 ? '' : 'none';
@@ -1363,7 +1364,8 @@ async function loadSnapshot(scan_time) {
       left:  data.stocks.filter(s => s.side === '左侧'),
       other: data.stocks.filter(s => s.side === '观望'),
     };
-    setStatus('ready', '历史快照', data.close_time || data.last_update);
+    const label = data.is_realtime ? '实时快照' : '历史快照';
+    setStatus('ready', label, data.close_time || data.last_update);
     const sb = document.getElementById('statsBar');
     if (sb) {
       sb.style.display = 'flex';
@@ -1372,8 +1374,44 @@ async function loadSnapshot(scan_time) {
       document.getElementById('statLeft').textContent  = data.stats.left_count;
       document.getElementById('statOther').textContent = data.stats.other_count;
     }
+    // 展示该快照保存的信号变化（而非实时计算）
+    const sc = data.signal_changes || {};
+    renderSnapshotSignalChanges(sc, scan_time);
     redrawPanels();
   } catch(e) { console.warn('loadSnapshot:', e); }
+}
+
+function renderSnapshotSignalChanges(sc, scan_time) {
+  const bar = document.getElementById('sigChangesBar');
+  const body = document.getElementById('sigChangesBody');
+  const header = document.getElementById('sigChangesHeader');
+  const buy  = sc.buy  || [];
+  const sell = sc.sell || [];
+
+  if (buy.length === 0 && sell.length === 0) {
+    if (bar) bar.style.display = 'none';
+    return;
+  }
+  if (bar) bar.style.display = '';
+
+  const compareLabel = document.getElementById('scCompareLabel');
+  if (compareLabel) {
+    const label = scan_time ? scan_time.slice(0,16) : '';
+    const prevL = sc.prev_label || '';
+    compareLabel.textContent = prevL ? `对比：${prevL} → ${label}` : label;
+  }
+  const buyCount  = document.getElementById('scBuyCount');
+  const sellCount = document.getElementById('scSellCount');
+  if (buyCount)  buyCount.textContent  = buy.length  > 0 ? `⚡ ${buy.length}只买入`  : '';
+  if (sellCount) sellCount.textContent = sell.length > 0 ? `🔴 ${sell.length}只卖出` : '';
+
+  renderScGroup('scBuyGroup',  'scBuyCards',  buy,  'buy');
+  renderScGroup('scSellGroup', 'scSellCards', sell, 'sell');
+
+  if (body && !body.classList.contains('open')) {
+    body.classList.add('open');
+    if (header) header.classList.add('open');
+  }
 }
 
 // ══════════════════════════════════════════════
