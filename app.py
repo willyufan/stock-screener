@@ -41,10 +41,62 @@ def _close_label(market: str) -> str | None:
 from apscheduler.schedulers.background import BackgroundScheduler
 from flask import Flask, jsonify, render_template, request
 
+
+def _is_trading_hours() -> bool:
+    """Return True if current Beijing time is within A-share market hours."""
+    now = _now_cst()
+    if now.weekday() >= 5:          # Saturday / Sunday
+        return False
+    t = now.hour * 60 + now.minute
+    # Morning 9:25–11:35, Afternoon 12:55–15:05 (slight buffer)
+    return (9 * 60 + 25 <= t <= 11 * 60 + 35) or (12 * 60 + 55 <= t <= 15 * 60 + 5)
+
+
+def _get_stocks_for_auto_scan(market: str = 'a_share') -> list:
+    """Gather all stocks from cache (realtime preferred) for auto strategy scan."""
+    with _lock:
+        entry = _cache.get(market, {})
+        data = entry.get('realtime_data') or entry.get('data')
+    if not data:
+        return []
+    return data.get('right', []) + data.get('left', []) + data.get('other', [])
+
+
+def _auto_scan_positions():
+    """Scheduled: every 5 min — feed positions scan to all active auto strategies."""
+    if not _is_trading_hours():
+        return
+    stocks = _get_stocks_for_auto_scan('a_share')
+    if not stocks:
+        return
+    scan_time = _now_cst().strftime('%Y-%m-%d %H:%M:%S')
+    try:
+        results = auto_engine.run_scan(stocks, scan_time, 'positions')
+        logger.info(f"[自动策略] positions 扫描完成，股票{len(stocks)}只，实例{len(results)}个")
+    except Exception as e:
+        logger.exception(f"[自动策略] positions 扫描失败: {e}")
+
+
+def _auto_scan_candidates():
+    """Scheduled: every 15 min — feed candidates scan (entries + exits)."""
+    if not _is_trading_hours():
+        return
+    stocks = _get_stocks_for_auto_scan('a_share')
+    if not stocks:
+        return
+    scan_time = _now_cst().strftime('%Y-%m-%d %H:%M:%S')
+    try:
+        results = auto_engine.run_scan(stocks, scan_time, 'candidates')
+        logger.info(f"[自动策略] candidates 扫描完成，股票{len(stocks)}只，实例{len(results)}个")
+    except Exception as e:
+        logger.exception(f"[自动策略] candidates 扫描失败: {e}")
+
 import data_fetcher
 import dcf_calc
 import watchlist as wl_mod
 import strategy as strat_mod
+from auto_strategy import engine as auto_engine
+import auto_strategy.strategies.kelly_signal  # noqa: F401 — triggers @register
 
 # ── 日志 ────────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -399,6 +451,14 @@ scheduler.add_job(lambda: refresh_async('hk'), 'cron',
                   hour=12, minute=5,  day_of_week='mon-fri')
 scheduler.add_job(lambda: refresh_async('hk'), 'cron',
                   hour=16, minute=5,  day_of_week='mon-fri')
+
+# 自动交易策略：盘中每 5 分钟持仓扫描，每 15 分钟候选扫描
+scheduler.add_job(_auto_scan_positions, 'cron',
+                  hour='9-11,13-15', minute='*/5', day_of_week='mon-fri',
+                  id='auto_positions', replace_existing=True)
+scheduler.add_job(_auto_scan_candidates, 'cron',
+                  hour='9-11,13-15', minute='*/15', day_of_week='mon-fri',
+                  id='auto_candidates', replace_existing=True)
 
 
 # ── API ──────────────────────────────────────────────────────────────────────
@@ -766,6 +826,67 @@ def api_strategy_run(sid):
     scan_date = _now_cst().strftime('%Y-%m-%d')
     result = strat_mod.run_on_scan(sid, all_stocks, scan_date)
     return jsonify(result)
+
+
+# ── 自动策略路由 ──────────────────────────────────────────────────────────────
+
+@app.route('/api/auto_strategies/available')
+def api_auto_available():
+    return jsonify(auto_engine.available_strategies())
+
+
+@app.route('/api/auto_strategies')
+def api_auto_list():
+    return jsonify(auto_engine.list_instances())
+
+
+@app.route('/api/auto_strategies', methods=['POST'])
+def api_auto_create():
+    d = request.json or {}
+    result = auto_engine.create_instance(
+        strategy_id=d.get('strategy_id', 'kelly_signal'),
+        name=d.get('name', ''),
+        params=d.get('params', {}),
+    )
+    if isinstance(result, str):
+        return jsonify({'error': result}), 400
+    return jsonify(result)
+
+
+@app.route('/api/auto_strategies/<iid>')
+def api_auto_get(iid):
+    inst = auto_engine.get_instance(iid)
+    if not inst:
+        return jsonify({'error': 'not found'}), 404
+    return jsonify(inst)
+
+
+@app.route('/api/auto_strategies/<iid>', methods=['DELETE'])
+def api_auto_delete(iid):
+    ok = auto_engine.delete_instance(iid)
+    return jsonify({'ok': ok})
+
+
+@app.route('/api/auto_strategies/<iid>/reset', methods=['POST'])
+def api_auto_reset(iid):
+    result = auto_engine.reset_instance(iid)
+    if not result:
+        return jsonify({'error': 'not found'}), 404
+    return jsonify(result)
+
+
+@app.route('/api/auto_strategies/scan', methods=['POST'])
+def api_auto_scan():
+    """手动触发一次自动策略扫描"""
+    body = request.json or {}
+    scan_type = body.get('scan_type', 'candidates')
+    stocks = _get_stocks_for_auto_scan('a_share')
+    if not stocks:
+        return jsonify({'error': '暂无股票数据，请先执行扫描'}), 400
+    scan_time = _now_cst().strftime('%Y-%m-%d %H:%M:%S')
+    results = auto_engine.run_scan(stocks, scan_time, scan_type)
+    return jsonify({'ok': True, 'instances': results, 'stocks_count': len(stocks),
+                    'scan_time': scan_time, 'scan_type': scan_type})
 
 
 # ── DCF 路由 ──────────────────────────────────────────────────────────────────
