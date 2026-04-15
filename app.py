@@ -624,6 +624,53 @@ def api_signal_changes():
     })
 
 
+# ── 配置路由 ──────────────────────────────────────────────────────────────────
+_CONFIG_FILE = os.path.join(os.path.dirname(__file__), 'config.py')
+
+@app.route('/api/config', methods=['GET'])
+def api_config_get():
+    """读取当前 Tushare token 配置"""
+    try:
+        import importlib, config as _cfg
+        importlib.reload(_cfg)
+        return jsonify({
+            'token_daily':  getattr(_cfg, 'TUSHARE_TOKEN_DAILY',  ''),
+            'token_minute': getattr(_cfg, 'TUSHARE_TOKEN_MINUTE', ''),
+            'ts_pro_ok':    data_fetcher._ts_pro  is not None,
+            'ts_mins_ok':   data_fetcher._ts_mins is not None,
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/config', methods=['POST'])
+def api_config_save():
+    """保存 Tushare token 到 config.py 并热重载"""
+    d = request.json or {}
+    token_daily  = d.get('token_daily',  '').strip()
+    token_minute = d.get('token_minute', '').strip()
+    try:
+        content = (
+            "# 数据源配置\n"
+            "# DAILY  token：daily / daily_basic / stock_basic 等日线接口\n"
+            "# MINUTE token：stk_mins 分钟级实时接口\n"
+            f'TUSHARE_TOKEN_DAILY  = "{token_daily}"\n'
+            f'TUSHARE_TOKEN_MINUTE = "{token_minute}"\n'
+        )
+        with open(_CONFIG_FILE, 'w', encoding='utf-8') as f:
+            f.write(content)
+        data_fetcher._init_tushare()
+        data_fetcher._load_stock_names()
+        return jsonify({
+            'ok':          True,
+            'ts_pro_ok':   data_fetcher._ts_pro  is not None,
+            'ts_mins_ok':  data_fetcher._ts_mins is not None,
+        })
+    except Exception as e:
+        logger.exception(f"保存配置失败: {e}")
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
 @app.route('/api/stock_detail')
 def api_stock_detail():
     """从缓存中查找单只股票的完整数据（含K线历史）"""
