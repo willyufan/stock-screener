@@ -217,17 +217,34 @@ def run_backtest(config: dict, market: str = 'a_share') -> dict:
 
 # ── 内部：仓库构建 ────────────────────────────────────────────────────────────
 
-def _weekdays_in_range(calendar_days: int) -> list[str]:
-    """返回最近 calendar_days 个自然日内的工作日列表（升序，YYYYMMDD）。
-    节假日由 Tushare 返回空数据自动跳过，此处仅排除周末。"""
+def _get_trading_days(n: int) -> list[str]:
+    """返回最近 n 个真实 A 股交易日（YYYYMMDD，升序）。
+    优先用 Tushare trade_cal；若接口不可用则退回到工作日估算。"""
+    import data_fetcher as _df
+    ts_pro = _df._ts_pro
+    if ts_pro is not None:
+        try:
+            end   = datetime.now(tz=_CST).strftime('%Y%m%d')
+            # 多取一些自然日以确保拿到足够的交易日（A股约每年244天）
+            start = (datetime.now(tz=_CST) - timedelta(days=int(n * 1.8))).strftime('%Y%m%d')
+            df = ts_pro.trade_cal(exchange='SSE', start_date=start,
+                                  end_date=end, is_open='1')
+            if df is not None and not df.empty:
+                dates = sorted(df['cal_date'].tolist())
+                return dates[-n:]          # 取最后 n 个
+        except Exception as e:
+            logger.warning(f'[回测] trade_cal 获取失败: {e}，退回工作日估算')
+
+    # Fallback：按工作日估算（不含节假日判断）
     today  = datetime.now(tz=_CST).date()
-    start  = today - timedelta(days=calendar_days)
+    buffer = int(n * 1.6)              # 用足够大的自然日窗口
     result = []
-    d = start
-    while d <= today:
-        if d.weekday() < 5:          # Mon-Fri
+    d = today
+    while len(result) < n:
+        if d.weekday() < 5:
             result.append(d.strftime('%Y%m%d'))
-        d += timedelta(days=1)
+        d -= timedelta(days=1)
+    result.reverse()
     return result
 
 
@@ -241,7 +258,7 @@ def _build_store(days: int, market: str):
                               'market': market, 'last_date': '', 'error': ''})
 
     existing = set(available_dates(market))
-    candidates = _weekdays_in_range(days)          # days = 自然日数
+    candidates = _get_trading_days(days)           # days = 交易日数
     to_fetch = [d for d in candidates if
                 datetime.strptime(d, '%Y%m%d').strftime('%Y-%m-%d') not in existing]
 
