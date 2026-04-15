@@ -774,12 +774,10 @@ header{flex-shrink:0;background:#161b22;border-bottom:1px solid #30363d;
         </div>
         <div id="btStoreInfo" style="font-size:11px;color:#8b949e;margin-bottom:6px">加载中…</div>
         <div style="display:flex;gap:5px;align-items:center">
-          <select id="btBuildDays" style="flex:1;padding:3px 5px;background:#21262d;border:1px solid #30363d;border-radius:4px;color:#e6edf3;font-size:11px">
-            <option value="20">近20交易日</option>
-            <option value="60">近60交易日</option>
-            <option value="120" selected>近120交易日</option>
-            <option value="244">近244交易日（约1年）</option>
-          </select>
+          <input type="number" id="btBuildDays" value="120" min="1" max="500" step="1"
+            title="输入想要建立的交易日数，已有的日期自动跳过"
+            style="flex:1;padding:3px 6px;background:#21262d;border:1px solid #30363d;border-radius:4px;color:#e6edf3;font-size:12px;width:60px"/>
+          <span style="font-size:10px;color:#8b949e;white-space:nowrap">交易日</span>
           <button class="btn" id="btBuildBtn" onclick="buildBtStore()" style="font-size:11px;padding:3px 8px;white-space:nowrap">⬇ 建立</button>
         </div>
         <div id="btBuildProgress" style="display:none;margin-top:5px;font-size:10px;color:#d29922"></div>
