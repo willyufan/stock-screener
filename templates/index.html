@@ -433,7 +433,8 @@ header{flex-shrink:0;background:#161b22;border-bottom:1px solid #30363d;
   <button class="app-tab active" onclick="switchTab('screening')">📊 股票筛选</button>
   <button class="app-tab" onclick="switchTab('watchlist')">⭐ 自选池 <span id="wlNavCount" style="font-size:10px;color:#8b949e"></span></button>
   <button class="app-tab" onclick="switchTab('dcf')">📐 DCF估值</button>
-  <button class="app-tab" onclick="switchTab('strategy')">🎯 模拟策略</button>
+  <button class="app-tab" onclick="switchTab('strategy')">🎯 手动策略</button>
+  <button class="app-tab" onclick="switchTab('auto_strategy')">🤖 自动策略</button>
   <button class="app-tab" onclick="switchTab('settings')" style="margin-left:auto">⚙️ 配置</button>
 </div>
 
@@ -684,6 +685,10 @@ header{flex-shrink:0;background:#161b22;border-bottom:1px solid #30363d;
             <input type="number" id="stratPosStop" value="-10" max="0" step="1"/>
           </div>
           <div style="flex:1">
+            <label>单仓止盈%</label>
+            <input type="number" id="stratPosTP" value="0" min="0" step="1" title="0 表示不启用止盈"/>
+          </div>
+          <div style="flex:1">
             <label>组合止损%</label>
             <input type="number" id="stratPortStop" value="-20" max="0" step="1"/>
           </div>
@@ -709,7 +714,57 @@ header{flex-shrink:0;background:#161b22;border-bottom:1px solid #30363d;
   </div>
 </div>
 
-<!-- ══════════════ TAB 5: 配置 ══════════════ -->
+<!-- ══════════════ TAB 5: 自动策略 ══════════════ -->
+<div class="tab-panel" id="tab-auto_strategy">
+  <div class="strategy-layout">
+
+    <!-- Sidebar -->
+    <div class="strat-sidebar">
+      <div class="strat-form-wrap">
+        <div class="strat-form-title">新建策略实例</div>
+        <div class="form-row">
+          <label>实例名称</label>
+          <input type="text" id="asName" placeholder="我的策略" maxlength="30"/>
+        </div>
+        <div class="form-row">
+          <label>策略类型</label>
+          <select id="asType">
+            <option value="kelly_signal">凯利转折</option>
+          </select>
+        </div>
+        <div class="form-row">
+          <label>初始资金（元）</label>
+          <input type="number" id="asCapital" value="1000000" min="100000" step="100000"/>
+        </div>
+        <button onclick="createAutoInstance()" style="width:100%;padding:7px;border-radius:6px;border:1px solid #1f6feb;background:#0d1a2d;color:#58a6ff;cursor:pointer;font-size:12px;font-weight:600;transition:.15s" onmouseover="this.style.background='#142035'" onmouseout="this.style.background='#0d1a2d'">＋ 创建实例</button>
+      </div>
+
+      <!-- Scan controls -->
+      <div style="padding:8px 12px;border-bottom:1px solid #21262d;display:flex;gap:5px">
+        <button onclick="runAutoScan('candidates')" class="btn btn-green" style="flex:1;font-size:11px;padding:4px 0" title="候选扫描（含买入判断）">▶ 候选扫描</button>
+        <button onclick="runAutoScan('positions')" class="btn" style="flex:1;font-size:11px;padding:4px 0" title="持仓扫描（止损/止盈/离场）">↻ 持仓扫描</button>
+      </div>
+
+      <div style="padding:6px 10px 2px;font-size:10px;color:#8b949e;font-weight:600;text-transform:uppercase;letter-spacing:.5px">实例列表</div>
+      <div class="strat-list" id="autoStratList">
+        <div style="padding:20px;text-align:center;color:#8b949e;font-size:12px">暂无策略实例</div>
+      </div>
+    </div>
+
+    <!-- Main detail -->
+    <div class="strat-main" id="autoStratMain">
+      <div class="strat-detail-empty" id="autoStratEmpty">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" style="opacity:.2">
+          <circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/>
+        </svg>
+        <div>从左侧选择策略实例查看详情</div>
+        <div style="font-size:12px;color:#6e7681">或创建一个新的凯利转折实例</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════ TAB 6: 配置 ══════════════ -->
 <div class="tab-panel" id="tab-settings">
   <div class="settings-wrap">
 
@@ -778,11 +833,12 @@ function switchTab(tabId) {
   document.querySelectorAll('.app-tab').forEach(b => b.classList.remove('active'));
   document.getElementById('tab-' + tabId).classList.add('active');
   const tabs = document.querySelectorAll('.app-tab');
-  const map = {screening:0, watchlist:1, dcf:2, strategy:3, settings:4};
+  const map = {screening:0, watchlist:1, dcf:2, strategy:3, auto_strategy:4, settings:5};
   if (map[tabId] !== undefined) tabs[map[tabId]].classList.add('active');
-  if (tabId === 'watchlist') loadWatchlist();
-  if (tabId === 'strategy')  loadStrategies();
-  if (tabId === 'settings')  loadConfig();
+  if (tabId === 'watchlist')     loadWatchlist();
+  if (tabId === 'strategy')      loadStrategies();
+  if (tabId === 'auto_strategy') loadAutoStrategies();
+  if (tabId === 'settings')      loadConfig();
 }
 
 // ══════════════════════════════════════════════
@@ -1821,8 +1877,9 @@ async function createStrategy() {
     max_positions: parseInt(document.getElementById('stratMaxPos').value) || 10,
     entry_signals: entry,
     exit_signals: exit,
-    position_stop_loss: parseFloat(document.getElementById('stratPosStop').value) || -10,
-    portfolio_stop: parseFloat(document.getElementById('stratPortStop').value) || -20,
+    position_stop_loss:   parseFloat(document.getElementById('stratPosStop').value) || -10,
+    position_take_profit: parseFloat(document.getElementById('stratPosTP').value) || 0,
+    portfolio_stop:       parseFloat(document.getElementById('stratPortStop').value) || -20,
   };
   try {
     const resp = await fetch('/api/strategies', {
@@ -1980,7 +2037,7 @@ function renderStrategyDetail(s) {
     <div style="font-size:11px;color:#8b949e;margin-top:10px">
       策略参数：${s.type} | 初始资金 ${(s.initial_capital/10000).toFixed(0)}万 |
       入场：${(s.entry_signals||[]).join('/')} | 离场：${(s.exit_signals||[]).join('/')} |
-      单仓止损 ${s.position_stop_loss}% | 组合止损 ${s.portfolio_stop}%
+      单仓止损 ${s.position_stop_loss}% | 止盈 ${s.position_take_profit > 0 ? s.position_take_profit+'%' : '不启用'} | 组合止损 ${s.portfolio_stop}%
     </div>`;
 
   // Render nav chart
@@ -2055,6 +2112,364 @@ async function deleteStrategy(sid) {
     showToast('策略已删除');
     loadStrategies();
   } catch(e) { showToast('删除失败', 'error'); }
+}
+
+// ══════════════════════════════════════════════
+// Auto Strategy
+// ══════════════════════════════════════════════
+let selectedAutoInstId = null;
+let autoNavChartInst   = null;
+
+async function loadAutoStrategies() {
+  try {
+    const [listResp, availResp] = await Promise.all([
+      fetch('/api/auto_strategies'),
+      fetch('/api/auto_strategies/available'),
+    ]);
+    const list  = await listResp.json();
+    const avail = await availResp.json();
+
+    // Populate strategy type dropdown
+    const sel = document.getElementById('asType');
+    if (sel && avail.length > 0) {
+      sel.innerHTML = avail.map(s =>
+        `<option value="${s.strategy_id}">${s.strategy_name}</option>`
+      ).join('');
+    }
+
+    renderAutoInstanceList(list);
+    if (selectedAutoInstId) {
+      const inst = list.find(i => i.instance_id === selectedAutoInstId);
+      if (inst) renderAutoInstanceDetail(inst);
+    }
+  } catch(e) { console.warn('loadAutoStrategies:', e); }
+}
+
+function renderAutoInstanceList(list) {
+  const el = document.getElementById('autoStratList');
+  if (!el) return;
+  if (!list || list.length === 0) {
+    el.innerHTML = '<div style="padding:20px;text-align:center;color:#8b949e;font-size:12px">暂无策略实例</div>';
+    return;
+  }
+  el.innerHTML = list.map(inst => {
+    const sum = inst.summary || {};
+    const ret = sum.total_return_pct != null ? sum.total_return_pct : 0;
+    const nav = sum.current_nav || 1;
+    const retClass = ret > 0 ? 'color:#3fb950' : ret < 0 ? 'color:#f85149' : 'color:#8b949e';
+    const st = (inst.state || {});
+    const status = st.status || 'active';
+    const isSelected = inst.instance_id === selectedAutoInstId;
+    const maxPos = (inst.params || {}).max_positions || 6;
+    const lastRun = st.last_run ? st.last_run.slice(5,16) : '—';
+    return `<div class="strat-item${isSelected?' selected':''}" onclick="selectAutoInstance('${inst.instance_id}')">
+      <div class="strat-item-name">
+        ${inst.name || inst.strategy_name}
+        <span class="strat-status ${status}">${status==='active'?'运行中':status==='liquidated'?'已清盘':'暂停'}</span>
+      </div>
+      <div style="font-size:10px;color:#6e7681;margin-bottom:2px">${inst.strategy_name}</div>
+      <div class="strat-item-stats">
+        <span>净值 <b style="${retClass}">${nav.toFixed(3)}</b></span>
+        <span>收益 <b style="${retClass}">${ret>=0?'+':''}${ret.toFixed(1)}%</b></span>
+        <span>仓位 <b>${sum.n_positions||0}/${maxPos}</b></span>
+        <span>扫描 ${lastRun}</span>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function selectAutoInstance(iid) {
+  selectedAutoInstId = iid;
+  document.querySelectorAll('#autoStratList .strat-item').forEach(el => {
+    el.classList.toggle('selected', el.getAttribute('onclick') && el.getAttribute('onclick').includes(`'${iid}'`));
+  });
+  try {
+    const resp = await fetch(`/api/auto_strategies/${iid}`);
+    if (!resp.ok) return;
+    const inst = await resp.json();
+    renderAutoInstanceDetail(inst);
+  } catch(e) { console.warn('selectAutoInstance:', e); }
+}
+
+function renderAutoInstanceDetail(inst) {
+  const main = document.getElementById('autoStratMain');
+  if (!main) return;
+
+  const sum    = inst.summary || {};
+  const state  = inst.state   || {};
+  const params = inst.params  || {};
+  const ret    = sum.total_return_pct != null ? sum.total_return_pct : 0;
+  const nav    = sum.current_nav || 1;
+  const dd     = sum.max_drawdown_pct || 0;
+  const status = state.status || 'active';
+  const retColor = ret >= 0 ? '#3fb950' : '#f85149';
+  const ddColor  = dd <= -10 ? '#f85149' : dd <= -5 ? '#f0883e' : '#8b949e';
+
+  // Positions table
+  const positions = state.positions || {};
+  const posEntries = Object.entries(positions);
+  const posRows = posEntries.map(([code, pos]) => {
+    const rem = pos.shares_remaining ?? pos.shares;
+    const halfTxt = pos.half_profit_taken
+      ? `<span style="font-size:9px;padding:1px 4px;border-radius:3px;background:#1a3a1a;color:#3fb950">已止盈①</span>` : '';
+    return `<tr>
+      <td><b>${code}</b></td>
+      <td style="color:#8b949e">${pos.name||''}</td>
+      <td>${pos.entry_price}</td>
+      <td>${rem.toLocaleString()} <span style="color:#8b949e;font-size:9px">/ ${pos.shares.toLocaleString()}</span></td>
+      <td>${(pos.cost/10000).toFixed(1)}万</td>
+      <td style="color:#f85149;font-size:10px">${pos.stop_loss_price||'—'}</td>
+      <td>${pos.entry_date||''}</td>
+      <td>${halfTxt}</td>
+    </tr>`;
+  }).join('') || `<tr class="no-data-row"><td colspan="8">暂无持仓</td></tr>`;
+
+  // Action log
+  const actionLog = (state.action_log || []).slice(-30).reverse();
+  const actionRows = actionLog.map(a => {
+    const isB = a.type === 'buy';
+    const pnlHtml = a.pnl_pct != null
+      ? `<span class="${a.pnl_pct>=0?'pos-pnl-pos':'pos-pnl-neg'}">${a.pnl_pct>=0?'+':''}${a.pnl_pct.toFixed(1)}%</span>`
+      : (a.cost ? `${(a.cost/10000).toFixed(1)}万` : '—');
+    const time = (a.scan_time || a.date || '').slice(5,16);
+    return `<tr>
+      <td style="color:#8b949e;font-size:10px;white-space:nowrap">${time}</td>
+      <td><span class="${isB?'action-buy':'action-sell'}">${isB?'买入':a.type==='liquidated'?'清盘':'卖出'}</span></td>
+      <td><b>${a.code||''}</b></td>
+      <td style="color:#8b949e">${a.name||''}</td>
+      <td style="font-family:monospace">${a.price||'—'}</td>
+      <td>${(a.shares||0).toLocaleString()}</td>
+      <td style="color:#6e7681;font-size:10px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${a.reason||''}</td>
+      <td>${pnlHtml}</td>
+    </tr>`;
+  }).join('') || `<tr class="no-data-row"><td colspan="8">暂无操作记录</td></tr>`;
+
+  // Trades (last 20 completed sells with pnl)
+  const trades = (state.trades || []).filter(t=>t.type==='sell').slice(-20).reverse();
+  const tradeRows = trades.map(t => {
+    return `<tr>
+      <td>${(t.date||'').slice(5)}</td>
+      <td><span class="action-sell">卖出</span></td>
+      <td><b>${t.code}</b></td>
+      <td style="color:#8b949e">${t.name||''}</td>
+      <td style="font-family:monospace">${t.price}</td>
+      <td>${(t.shares||0).toLocaleString()}</td>
+      <td style="color:#6e7681;font-size:10px">${t.reason||''}</td>
+      <td><span class="${t.pnl_pct>=0?'pos-pnl-pos':'pos-pnl-neg'}">${t.pnl_pct>=0?'+':''}${(t.pnl_pct||0).toFixed(1)}%</span></td>
+    </tr>`;
+  }).join('') || `<tr class="no-data-row"><td colspan="8">暂无卖出记录</td></tr>`;
+
+  // Params summary
+  const kelly = ((params.kelly_fraction||0.125)*100).toFixed(1);
+  const paramsTxt = [
+    `初始资金 ${((params.initial_capital||1e6)/10000).toFixed(0)}万`,
+    `最大持仓 ${params.max_positions||6}只`,
+    `仓位 ${kelly}%/只`,
+    `止损 ${params.stop_loss_pct||'-8'}%`,
+    `止盈① +${params.take_profit1_pct||10}%`,
+    `保本线 ${params.take_profit2_pct??0}%`,
+    `手续费 买${((params.buy_fee||0.0005)*100).toFixed(2)}% 卖${((params.sell_fee||0.0015)*100).toFixed(2)}%`,
+  ].join(' · ');
+
+  const capital  = (state.capital||0).toLocaleString('zh-CN', {maximumFractionDigits:0});
+  const totalVal = (sum.total_return_pct != null)
+    ? ((params.initial_capital||1e6) * (1 + (sum.total_return_pct||0)/100) / 10000).toFixed(1) + '万'
+    : '—';
+
+  main.innerHTML = `
+    <div class="strat-detail-header">
+      <div>
+        <div class="strat-detail-name">${inst.name || inst.strategy_name}</div>
+        <div style="font-size:11px;color:#6e7681;margin-top:2px">${inst.strategy_name} · 实例 ${inst.instance_id}</div>
+      </div>
+      <span class="strat-status ${status}">${status==='active'?'运行中':status==='liquidated'?'已清盘':'暂停'}</span>
+      <div style="margin-left:auto;display:flex;gap:6px;flex-wrap:wrap">
+        <button class="run-btn" onclick="runAutoScan('candidates',true)" ${status==='liquidated'?'disabled':''} title="候选扫描（含买入）">▶ 候选扫描</button>
+        <button class="run-btn" style="border-color:#1f6feb;background:#0d1a2d;color:#58a6ff" onclick="runAutoScan('positions',true)" ${status==='liquidated'?'disabled':''} title="持仓扫描">↻ 持仓</button>
+        <button class="run-btn" style="border-color:#d29922;background:#1a1500;color:#d29922" onclick="resetAutoInstance('${inst.instance_id}')" title="重置为初始状态">↺ 重置</button>
+        <button class="del-btn" onclick="deleteAutoInstance('${inst.instance_id}')">✕ 删除</button>
+      </div>
+    </div>
+
+    <div class="strat-kpis">
+      <div class="kpi-card">
+        <div class="kpi-label">当前净值</div>
+        <div class="kpi-value" style="color:${retColor}">${nav.toFixed(3)}</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">总收益</div>
+        <div class="kpi-value" style="color:${retColor}">${ret>=0?'+':''}${ret.toFixed(1)}%</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">最大回撤</div>
+        <div class="kpi-value" style="color:${ddColor}">${dd.toFixed(1)}%</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">持仓 / 总市值</div>
+        <div class="kpi-value">${posEntries.length}<span style="font-size:12px;color:#8b949e"> / ${params.max_positions||6}</span></div>
+      </div>
+    </div>
+    <div style="font-size:11px;color:#6e7681;margin:-10px 0 14px;display:flex;gap:10px;flex-wrap:wrap">
+      <span>可用资金 <b style="color:#e6edf3">${capital}元</b></span>
+      <span>总资产约 <b style="color:#e6edf3">${totalVal}</b></span>
+      <span>交易次数 <b style="color:#e6edf3">${sum.total_trades||0}</b></span>
+      ${state.last_run ? `<span>上次扫描 <b style="color:#e6edf3">${state.last_run.slice(5,16)}</b></span>` : ''}
+    </div>
+
+    <div class="strat-section">
+      <div class="strat-section-title">净值曲线</div>
+      <div class="chart-wrap"><canvas id="autoNavChart"></canvas></div>
+    </div>
+
+    <div class="strat-section">
+      <div class="strat-section-title">当前持仓 (${posEntries.length})</div>
+      <div style="overflow-x:auto">
+        <table class="mini-table">
+          <thead><tr><th>代码</th><th>名称</th><th>买入价</th><th>剩余/总股</th><th>成本</th><th>止损价</th><th>入场日</th><th>半仓</th></tr></thead>
+          <tbody>${posRows}</tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="strat-section">
+      <div class="strat-section-title">最近操作日志（最新30条）</div>
+      <div style="overflow-x:auto">
+        <table class="mini-table">
+          <thead><tr><th>时间</th><th>类型</th><th>代码</th><th>名称</th><th>价格</th><th>股数</th><th>原因</th><th>盈亏/成本</th></tr></thead>
+          <tbody>${actionRows}</tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="strat-section">
+      <div class="strat-section-title">卖出交易记录（最近20条）</div>
+      <div style="overflow-x:auto">
+        <table class="mini-table">
+          <thead><tr><th>日期</th><th>类型</th><th>代码</th><th>名称</th><th>价格</th><th>股数</th><th>原因</th><th>盈亏</th></tr></thead>
+          <tbody>${tradeRows}</tbody>
+        </table>
+      </div>
+    </div>
+
+    <div style="font-size:10px;color:#6e7681;margin-top:6px;padding:8px 0;border-top:1px solid #21262d">
+      ${paramsTxt}
+    </div>`;
+
+  // Render NAV chart
+  renderAutoNavChart(state.nav_history || []);
+}
+
+function renderAutoNavChart(navHistory) {
+  const canvas = document.getElementById('autoNavChart');
+  if (!canvas) return;
+  if (autoNavChartInst) { autoNavChartInst.destroy(); autoNavChartInst = null; }
+  if (!navHistory || navHistory.length === 0) {
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#8b949e';
+    ctx.font = '12px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('暂无净值数据（运行扫描后生成）', canvas.width/2, canvas.height/2);
+    return;
+  }
+  const labels = navHistory.map(h => h.date ? h.date.slice(5) : '');
+  const vals   = navHistory.map(h => h.nav);
+  const lastVal = vals[vals.length-1];
+  const lineColor = lastVal >= 1 ? '#3fb950' : '#f85149';
+  autoNavChartInst = new Chart(canvas, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        data: vals,
+        borderColor: lineColor,
+        backgroundColor: lineColor + '22',
+        borderWidth: 2,
+        fill: true,
+        tension: 0.3,
+        pointRadius: vals.length > 50 ? 0 : 2,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false },
+        tooltip: { callbacks: { label: ctx => `净值 ${ctx.parsed.y.toFixed(4)}` } }
+      },
+      scales: {
+        x: { ticks: { color: '#8b949e', font: {size:9}, maxTicksLimit:10 }, grid: { color: '#21262d' } },
+        y: { ticks: { color: '#8b949e', font: {size:9} }, grid: { color: '#21262d' } }
+      }
+    }
+  });
+}
+
+async function createAutoInstance() {
+  const name = (document.getElementById('asName')?.value || '').trim();
+  const sid  = document.getElementById('asType')?.value || 'kelly_signal';
+  const cap  = parseFloat(document.getElementById('asCapital')?.value) || 1000000;
+  if (!name) { showToast('请输入实例名称', 'warn'); return; }
+  try {
+    const resp = await fetch('/api/auto_strategies', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({strategy_id: sid, name, params: {initial_capital: cap}}),
+    });
+    const data = await resp.json();
+    if (data.error) { showToast('创建失败: ' + data.error, 'error'); return; }
+    showToast(`✅ 实例「${name}」已创建`);
+    document.getElementById('asName').value = '';
+    await loadAutoStrategies();
+    selectAutoInstance(data.instance_id);
+  } catch(e) { showToast('创建失败', 'error'); }
+}
+
+async function resetAutoInstance(iid) {
+  if (!confirm('确认重置？策略状态、持仓和交易记录将清空，但参数保留。')) return;
+  try {
+    const resp = await fetch(`/api/auto_strategies/${iid}/reset`, {method:'POST'});
+    const data = await resp.json();
+    if (data.error) { showToast('重置失败: ' + data.error, 'error'); return; }
+    showToast('↺ 实例已重置');
+    renderAutoInstanceDetail(data);
+    await loadAutoStrategies();
+  } catch(e) { showToast('重置失败', 'error'); }
+}
+
+async function deleteAutoInstance(iid) {
+  if (!confirm('确认删除该策略实例？此操作不可撤销。')) return;
+  try {
+    await fetch(`/api/auto_strategies/${iid}`, {method:'DELETE'});
+    selectedAutoInstId = null;
+    const main = document.getElementById('autoStratMain');
+    if (main) main.innerHTML = `<div class="strat-detail-empty" id="autoStratEmpty">
+      <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" style="opacity:.2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/></svg>
+      <div>从左侧选择策略实例查看详情</div></div>`;
+    showToast('实例已删除');
+    await loadAutoStrategies();
+  } catch(e) { showToast('删除失败', 'error'); }
+}
+
+async function runAutoScan(scanType, refreshDetail) {
+  showToast(`▶ ${scanType==='candidates'?'候选':'持仓'}扫描中…`);
+  try {
+    const resp = await fetch('/api/auto_strategies/scan', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({scan_type: scanType}),
+    });
+    const data = await resp.json();
+    if (data.error) { showToast('扫描失败: ' + data.error, 'error'); return; }
+
+    const n = (data.instances || []).length;
+    showToast(`✅ 扫描完成 | ${data.stocks_count}只股票 | ${n}个实例已更新`);
+    await loadAutoStrategies();
+
+    // If a detail is showing, refresh it
+    if (refreshDetail && selectedAutoInstId) {
+      selectAutoInstance(selectedAutoInstId);
+    }
+  } catch(e) { showToast('扫描请求失败', 'error'); }
 }
 
 // ══════════════════════════════════════════════

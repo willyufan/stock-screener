@@ -42,8 +42,9 @@ def create_strategy(params: dict) -> dict:
         'max_positions': int(params.get('max_positions', 10)),
         'entry_signals': params.get('entry_signals', ['⚡强烈买入', '✅买入']),
         'exit_signals': params.get('exit_signals', ['🔴强烈卖出', '⚠️卖出观察']),
-        'position_stop_loss': float(params.get('position_stop_loss', -10.0)),
-        'portfolio_stop': float(params.get('portfolio_stop', -20.0)),
+        'position_stop_loss':   float(params.get('position_stop_loss', -10.0)),
+        'position_take_profit': float(params.get('position_take_profit', 0.0)),  # 0=不启用
+        'portfolio_stop':       float(params.get('portfolio_stop', -20.0)),
         # State
         'capital': initial_capital,
         'positions': {},
@@ -106,9 +107,13 @@ def run_on_scan(sid: str, all_stocks: list, scan_date: str) -> dict:
         pnl_pct = (current_price - pos['entry_price']) / pos['entry_price'] * 100
 
         sell_reason = None
+        tp = strat.get('position_take_profit', 0.0)
         # Stop loss check
         if pnl_pct <= strat['position_stop_loss']:
             sell_reason = f'止损({pnl_pct:.1f}%)'
+        # Take profit check (only when > 0)
+        elif tp > 0 and pnl_pct >= tp:
+            sell_reason = f'止盈({pnl_pct:.1f}%)'
         # Exit signal check
         elif current_stock.get('signal_strength') in strat.get('exit_signals', []):
             sell_reason = f'离场信号({current_stock.get("signal_strength","")})'
