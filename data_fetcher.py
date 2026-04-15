@@ -48,17 +48,53 @@ from stock_analyzer import classify_stock
 
 logger = logging.getLogger(__name__)
 
-# ── Tushare（可选）──────────────────────────────────────────────────────────
-_ts_pro = None
-try:
-    from config import TUSHARE_TOKEN
-    if TUSHARE_TOKEN:
-        import tushare as ts
-        ts.set_token(TUSHARE_TOKEN)
-        _ts_pro = ts.pro_api()
-        logger.info("Tushare 初始化成功")
-except Exception as _e:
-    logger.info(f"Tushare 未启用: {_e}")
+# ── Tushare（可选，双 token）────────────────────────────────────────────────
+# _ts_pro  : 日线接口（daily / daily_basic / stock_basic …）
+# _ts_mins : 分钟接口（stk_mins）
+_ts_pro  = None
+_ts_mins = None
+
+import tushare as ts   # noqa: E402 — 即使 token 为空也先 import，以便 reload 时可用
+
+
+def _init_tushare():
+    """从 config 读取 token 并（重新）初始化两个 pro_api 实例。"""
+    global _ts_pro, _ts_mins
+    try:
+        import importlib, config as _cfg
+        importlib.reload(_cfg)
+        token_daily  = getattr(_cfg, 'TUSHARE_TOKEN_DAILY',  '') or ''
+        token_minute = getattr(_cfg, 'TUSHARE_TOKEN_MINUTE', '') or ''
+    except Exception as e:
+        logger.warning(f"读取 config 失败: {e}")
+        token_daily = token_minute = ''
+
+    if token_daily:
+        try:
+            ts.set_token(token_daily)
+            _ts_pro = ts.pro_api()
+            logger.info("Tushare [日线] 初始化成功")
+        except Exception as e:
+            logger.warning(f"Tushare [日线] 初始化失败: {e}")
+            _ts_pro = None
+    else:
+        _ts_pro = None
+        logger.info("Tushare [日线] token 未配置")
+
+    if token_minute:
+        try:
+            ts.set_token(token_minute)
+            _ts_mins = ts.pro_api()
+            logger.info("Tushare [分钟] 初始化成功")
+        except Exception as e:
+            logger.warning(f"Tushare [分钟] 初始化失败: {e}")
+            _ts_mins = None
+    else:
+        _ts_mins = None
+        logger.info("Tushare [分钟] token 未配置")
+
+
+_init_tushare()
 
 # ── 名称 & 股本缓存 ──────────────────────────────────────────────────────────
 _name_cache: dict[str, str] = {}    # '600000' -> '浦发银行'
@@ -556,13 +592,13 @@ def _fetch_today_bar_stk_mins(symbol: str) -> dict | None:
     返回 dict: {date, open, high, low, close, volume, amount, change_pct}
     或 None（无数据/非交易日/stk_mins 不可用）
     """
-    if _ts_pro is None:
+    if _ts_mins is None:
         return None
     ts_code = _a_to_ts(symbol)
     today   = _now_cst().strftime('%Y-%m-%d')
     try:
         with _mins_semaphore:
-            df = _ts_pro.stk_mins(ts_code=ts_code, freq='1min')
+            df = _ts_mins.stk_mins(ts_code=ts_code, freq='1min')
     except Exception as e:
         logger.debug(f"stk_mins {symbol} 失败: {e}")
         return None
@@ -674,8 +710,8 @@ def get_a_share_stocks_realtime(progress_cb=None,
     prev_history: 上一次（最近一次日期）的扫描 data（含 left/other 列表）
     watchlist_codes: 自选股代码列表（6位数字）
     """
-    if _ts_pro is None:
-        logger.warning("实时扫描需要 Tushare token（分钟权限）")
+    if _ts_mins is None:
+        logger.warning("实时扫描需要 Tushare 分钟 token（stk_mins 权限）")
         return []
 
     # ── 构建扫描目标 ─────────────────────────────────────────────
