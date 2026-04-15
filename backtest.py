@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 _CST      = timezone(timedelta(hours=8))
 _DATA_DIR = os.path.join(os.path.dirname(__file__), 'data')
 
-_STORE_MAX  = 365   # 回测数据仓库最多保留天数
+_STORE_MAX  = 500   # 回测数据仓库最多保留交易日数（可按需调大）
 _BT_MAX     = 30    # 回测记录最多保留条数
 
 # 回测数据仓库只保留这些字段（节省空间）
