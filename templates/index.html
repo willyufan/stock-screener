@@ -1370,8 +1370,15 @@ async function doScan() {
     // single date
     setStatus('loading', `扫描 ${start}…`);
     try {
-      await fetch('/api/scan', {method:'POST', headers:{'Content-Type':'application/json'},
+      const r = await fetch('/api/scan', {method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({market, date: start})});
+      const j = await r.json();
+      if (j.status === 'already_latest') {
+        setStatus('green', `${start} 已有记录`);
+        showToast(`📋 ${start} 已扫描过，直接加载历史`);
+        await loadScanHistory(market);
+        return;
+      }
       startPoll();
     } catch(e) { setStatus('red', '请求失败'); }
   } else {
@@ -1434,8 +1441,13 @@ async function pollBatch(market) {
     clearInterval(_batchPollTimer);
     _batchPollTimer = null;
     if (bs.status === 'done') {
-      const scanned = bs.total - bs.skipped;
-      showToast(`✅ 批量扫描完成：${scanned}/${bs.total} 个交易日`);
+      const cached  = bs.cached  || 0;
+      const skipped = bs.skipped || 0;
+      const fresh   = bs.total - cached - skipped;
+      const parts   = [`新扫 ${fresh}`];
+      if (cached)  parts.push(`已缓存 ${cached}`);
+      if (skipped) parts.push(`失败 ${skipped}`);
+      showToast(`✅ 批量扫描完成：${parts.join(' / ')} / 共 ${bs.total} 个交易日`);
       await loadScanHistory(market);
     }
     startPoll();

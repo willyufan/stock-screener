@@ -415,12 +415,26 @@ def _do_batch_scan(market: str, dates: list[str]):
     bs = _batch_scan[market]
     with _batch_lock:
         bs.update({'status': 'running', 'total': len(dates), 'done': 0,
-                   'skipped': 0, 'current_date': None, 'errors': []})
+                   'skipped': 0, 'cached': 0, 'current_date': None, 'errors': []})
+
+    # 预先加载已有历史，避免重复扫描
+    history = _load_history(market)
+    scanned_dates = {h.get('scan_date') for h in history if not h.get('is_realtime', False)}
+
     for date_ts in dates:
         # _refresh / Tushare 需要 YYYYMMDD 格式，_get_trading_days 返回 YYYY-MM-DD
         date_ymd = date_ts.replace('-', '')
         with _batch_lock:
             bs['current_date'] = date_ts
+
+        # 已扫描过的日期直接跳过
+        if date_ts in scanned_dates:
+            with _batch_lock:
+                bs['cached'] += 1
+                bs['done'] += 1
+            logger.info(f"[批量扫描] {market} {date_ts} 已有记录，跳过")
+            continue
+
         try:
             _refresh(market, date=date_ymd)
             with _lock:
@@ -429,6 +443,8 @@ def _do_batch_scan(market: str, dates: list[str]):
                         bs['skipped'] += 1
                         bs['errors'].append(date_ts)
                     _cache[market]['status'] = 'ready'
+                else:
+                    scanned_dates.add(date_ts)  # 成功后加入已扫集合
         except Exception as e:
             logger.warning(f"[批量扫描] {market} {date_ts} 失败: {e}")
             with _batch_lock:
@@ -641,8 +657,9 @@ def api_scan():
             return jsonify({'status': 'already_loading'})
         last_update = _cache[market].get('last_update')
 
-    # 判断是否同日已扫描（仅在不指定历史日期时做此检查）
     close_time = _close_label(market)
+
+    # 判断是否已扫描过（实时扫描检查今日，历史日期扫描检查 history）
     if not date_ts:
         today = _now_cst().strftime('%Y-%m-%d')
         if last_update and last_update[:10] == today:
@@ -651,6 +668,19 @@ def api_scan():
                 'last_update': last_update,
                 'close_time':  close_time,
                 'message':     f'今日已扫描（{last_update[:16]}），无需重复',
+            })
+    else:
+        history = _load_history(market)
+        existing = next(
+            (h for h in history if not h.get('is_realtime', False) and h.get('scan_date') == date_label),
+            None
+        )
+        if existing:
+            return jsonify({
+                'status':      'already_latest',
+                'last_update': existing.get('scan_time', ''),
+                'close_time':  close_time,
+                'message':     f'{date_label} 已扫描过，无需重复',
             })
 
     refresh_async(market, date=date_ts)
