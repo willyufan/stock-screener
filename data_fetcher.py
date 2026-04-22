@@ -942,13 +942,17 @@ def _fetch_hk_hist(symbol: str, end_date: str | None = None) -> pd.DataFrame | N
         if not df.empty:
             return df
 
-    # 2. Tushare hk_daily（备用）
+    # 2. Tushare hk_daily_adj（复权，备用，使用 DAILY token）
     if _ts_pro:
         try:
             _limiter.wait()
-            raw = _ts_pro.hk_daily(ts_code=f"{symbol}.HK", start_date=sd, end_date=ed)
+            raw = _ts_pro.hk_daily_adj(ts_code=f"{symbol}.HK", start_date=sd, end_date=ed)
             if raw is not None and not raw.empty:
-                raw = raw.rename(columns={'trade_date': 'date', 'vol': 'volume', 'amount': 'amount'})
+                raw = raw.rename(columns={
+                    'trade_date': 'date',
+                    'vol':        'volume',
+                    'pct_change': 'change_pct',
+                })
                 raw['date'] = pd.to_datetime(raw['date']).dt.date.astype(str)
                 for col in ('open', 'high', 'low', 'close', 'volume'):
                     if col in raw.columns:
@@ -957,7 +961,7 @@ def _fetch_hk_hist(symbol: str, end_date: str | None = None) -> pd.DataFrame | N
                     raw['amount'] = raw['volume'] * raw['close']
                 return raw.sort_values('date').reset_index(drop=True)
         except Exception as e:
-            logger.debug(f"[Tushare hk_daily] {symbol}: {e}")
+            logger.debug(f"[Tushare hk_daily_adj] {symbol}: {e}")
 
     return None
 

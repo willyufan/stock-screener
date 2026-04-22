@@ -417,10 +417,12 @@ def _do_batch_scan(market: str, dates: list[str]):
         bs.update({'status': 'running', 'total': len(dates), 'done': 0,
                    'skipped': 0, 'current_date': None, 'errors': []})
     for date_ts in dates:
+        # _refresh / Tushare 需要 YYYYMMDD 格式，_get_trading_days 返回 YYYY-MM-DD
+        date_ymd = date_ts.replace('-', '')
         with _batch_lock:
             bs['current_date'] = date_ts
         try:
-            _refresh(market, date=date_ts)
+            _refresh(market, date=date_ymd)
             with _lock:
                 if _cache[market]['status'] == 'error':
                     with _batch_lock:
