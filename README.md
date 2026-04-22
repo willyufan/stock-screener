@@ -53,20 +53,22 @@ export TUSHARE_TOKEN_MINUTE=your_minute_token
 
 ### 2. 启动
 
+**首次运行**（自动创建虚拟环境并安装依赖）：
+
 ```bash
 bash run.sh
 ```
 
-首次运行会自动创建虚拟环境并安装依赖。启动后访问 [http://localhost:5005](http://localhost:5005)。
-
-### 手动安装（可选）
+**日常启动**（依赖已装好，直接启动）：
 
 ```bash
-python3 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
 python app.py
 ```
+
+> `run.sh` 会检测 `requirements.txt` 是否有变更，只在需要时才重装依赖，之后直接用上面的命令更快。
+
+启动后访问 [http://localhost:5005](http://localhost:5005)。
 
 ## 目录结构
 
