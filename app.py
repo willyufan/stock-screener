@@ -122,6 +122,13 @@ _cache: dict[str, Any] = {
 }
 _lock = threading.Lock()
 
+def _new_batch_state() -> dict:
+    return {'status': 'idle', 'total': 0, 'done': 0, 'skipped': 0,
+            'current_date': None, 'errors': []}
+
+_batch_scan = {'a_share': _new_batch_state(), 'hk': _new_batch_state()}
+_batch_lock = threading.Lock()
+
 # 全量扫描状态
 _full_scan: dict[str, Any] = {
     'running':   False,
@@ -319,7 +326,7 @@ def _refresh(market: str, full_scan: bool = False, date: str | None = None):
                 date=date,
             )
 
-        if not stocks and date:
+        if not stocks and (market == 'hk' or date):
             with _lock:
                 _cache[market]['status'] = 'error'
                 _cache[market]['error']  = f'{date} 无数据（非交易日或数据未就绪）'
@@ -377,6 +384,59 @@ def _refresh(market: str, full_scan: bool = False, date: str | None = None):
             _cache[market]['status'] = 'error'
             _cache[market]['error']  = str(e)
         return []
+
+
+def _get_trading_days(start_ts: str, end_ts: str) -> list[str]:
+    """Return list of trading day strings (YYYY-MM-DD) between start_ts and end_ts inclusive."""
+    from data_fetcher import _ts_pro
+    try:
+        if _ts_pro:
+            start_d = start_ts.replace('-', '')
+            end_d   = end_ts.replace('-', '')
+            cal = _ts_pro.trade_cal(exchange='SSE', start_date=start_d, end_date=end_d, is_open='1')
+            if cal is not None and not cal.empty:
+                dates = sorted(cal['cal_date'].tolist())
+                return [f"{d[:4]}-{d[4:6]}-{d[6:]}" for d in dates]
+    except Exception as e:
+        logger.warning(f"Tushare trade_cal 失败，回退到排除周末: {e}")
+    # Fallback: exclude weekends
+    from datetime import date, timedelta
+    days = []
+    cur = date.fromisoformat(start_ts)
+    end = date.fromisoformat(end_ts)
+    while cur <= end:
+        if cur.weekday() < 5:
+            days.append(str(cur))
+        cur += timedelta(days=1)
+    return days
+
+
+def _do_batch_scan(market: str, dates: list[str]):
+    bs = _batch_scan[market]
+    with _batch_lock:
+        bs.update({'status': 'running', 'total': len(dates), 'done': 0,
+                   'skipped': 0, 'current_date': None, 'errors': []})
+    for date_ts in dates:
+        with _batch_lock:
+            bs['current_date'] = date_ts
+        try:
+            _refresh(market, date=date_ts)
+            with _lock:
+                if _cache[market]['status'] == 'error':
+                    with _batch_lock:
+                        bs['skipped'] += 1
+                        bs['errors'].append(date_ts)
+                    _cache[market]['status'] = 'ready'
+        except Exception as e:
+            logger.warning(f"[批量扫描] {market} {date_ts} 失败: {e}")
+            with _batch_lock:
+                bs['skipped'] += 1
+                bs['errors'].append(date_ts)
+        with _batch_lock:
+            bs['done'] += 1
+    with _batch_lock:
+        bs['status'] = 'done'
+        bs['current_date'] = None
 
 
 def refresh_async(market: str, full_scan: bool = False, date: str | None = None):
@@ -501,6 +561,7 @@ def api_status():
             'last_run':   _full_scan['last_run'],
             'last_count': _full_scan['last_count'],
         }
+    base['batch_scan'] = {m: dict(_batch_scan[m]) for m in ('a_share', 'hk')}
     return jsonify(base)
 
 
@@ -596,6 +657,40 @@ def api_scan():
         'close_time': close_time,
         'date':       date_label or _now_cst().strftime('%Y-%m-%d'),
     })
+
+
+@app.route('/api/scan_range', methods=['POST'])
+def api_scan_range():
+    data       = request.get_json(force=True) or {}
+    market     = data.get('market', 'a_share')
+    date_start = data.get('date_start', '')
+    date_end   = data.get('date_end', '')
+    if not date_start or not date_end:
+        return jsonify({'error': 'date_start and date_end required'}), 400
+    if _batch_scan[market]['status'] == 'running':
+        return jsonify({'error': 'batch scan already running'}), 409
+    dates = _get_trading_days(date_start, date_end)
+    if not dates:
+        return jsonify({'error': 'no trading days in range'}), 400
+    t = threading.Thread(target=_do_batch_scan, args=(market, dates), daemon=True)
+    t.start()
+    return jsonify({'ok': True, 'trading_days': len(dates)})
+
+@app.route('/api/scan_range/status')
+def api_scan_range_status():
+    market = request.args.get('market', 'a_share')
+    with _batch_lock:
+        return jsonify(dict(_batch_scan[market]))
+
+@app.route('/api/trading_days')
+def api_trading_days():
+    market     = request.args.get('market', 'a_share')
+    date_start = request.args.get('date_start', '')
+    date_end   = request.args.get('date_end', '')
+    if not date_start or not date_end:
+        return jsonify({'count': 0, 'dates': []})
+    dates = _get_trading_days(date_start, date_end)
+    return jsonify({'count': len(dates), 'dates': dates})
 
 
 @app.route('/api/scan_history')

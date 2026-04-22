@@ -433,9 +433,21 @@ header{flex-shrink:0;background:#161b22;border-bottom:1px solid #30363d;
         </div>
         <!-- Date input (only in history mode) -->
         <div id="scanDateWrap" style="display:none">
-          <input type="date" id="scanDateInput" style="width:100%;padding:6px 8px;background:#21262d;
-            border:1px solid #30363d;border-radius:6px;color:#e6edf3;font-size:13px;margin-bottom:10px;box-sizing:border-box"
-            onkeydown="if(event.key==='Enter')doScan()"/>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:8px">
+            <div>
+              <div style="font-size:11px;color:#8b949e;margin-bottom:3px">开始日期</div>
+              <input type="date" id="scanDateStart" style="width:100%;padding:5px 7px;background:#21262d;
+                border:1px solid #30363d;border-radius:6px;color:#e6edf3;font-size:12px;box-sizing:border-box"
+                oninput="updateScanPreview()"/>
+            </div>
+            <div>
+              <div style="font-size:11px;color:#8b949e;margin-bottom:3px">结束日期</div>
+              <input type="date" id="scanDateEnd" style="width:100%;padding:5px 7px;background:#21262d;
+                border:1px solid #30363d;border-radius:6px;color:#e6edf3;font-size:12px;box-sizing:border-box"
+                oninput="updateScanPreview()"/>
+            </div>
+          </div>
+          <div id="scanDatePreview" style="font-size:11px;color:#8b949e;margin-bottom:8px;min-height:16px"></div>
         </div>
         <div style="display:flex;gap:7px">
           <button onclick="doScan()" style="flex:1;padding:6px;border-radius:6px;border:1px solid #238636;
@@ -1305,12 +1317,13 @@ function setScanMode(mode) {
     btnHi.style.background = 'transparent'; btnHi.style.color = '#8b949e';
   } else {
     wrap.style.display = '';
-    const input = document.getElementById('scanDateInput');
-    if (!input.value) input.value = _lastTradingDay();
-    input.max = new Date().toISOString().slice(0, 10);
+    if (mode === 'history') {
+      const today = new Date().toISOString().split('T')[0];
+      const endEl = document.getElementById('scanDateEnd');
+      if (endEl && !endEl.value) endEl.value = today;
+    }
     btnHi.style.background = '#1a3a1a'; btnHi.style.color = '#3fb950';
     btnRt.style.background = 'transparent'; btnRt.style.color = '#8b949e';
-    setTimeout(() => input.focus(), 50);
   }
 }
 
@@ -1333,49 +1346,109 @@ document.addEventListener('click', e => {
 });
 
 async function doScan() {
-  const msg  = document.getElementById('scanPickerMsg');
-  const date = scanMode === 'history' ? (document.getElementById('scanDateInput').value || '') : '';
-  msg.style.display = 'none';
+  const market = currentMarket;
+  const start  = document.getElementById('scanDateStart')?.value || '';
+  const end    = document.getElementById('scanDateEnd')?.value   || '';
 
-  try {
-    const resp = await fetch('/api/scan', {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({market: currentMarket, date})
-    });
-    const data = await resp.json();
-
-    if (data.status === 'non_trading') {
-      msg.textContent = data.message;
-      msg.style.display = '';
-      if (data.suggest && input) input.value = data.suggest;
-      return;
-    }
-    if (data.status === 'already_latest') {
-      showToast('✅ ' + data.message);
-      closeScanPicker();
-      return;
-    }
-    if (data.status === 'already_loading') {
-      showToast('⏳ 正在扫描中，请稍候', 'warn');
-      closeScanPicker();
-      startPoll();
-      return;
-    }
-    if (data.error) {
-      msg.textContent = data.error;
-      msg.style.display = '';
-      return;
-    }
-
+  if (scanMode === 'realtime') {
     closeScanPicker();
-    setStatus('loading', `扫描 ${date || '最新'} 数据中…`);
-    clearAll();
-    document.getElementById('historySelect').value = '';
+    setStatus('loading', '扫描中…');
+    try {
+      await fetch('/api/scan', {method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({market, date: ''})});
+      startPoll();
+    } catch(e) { setStatus('red', '请求失败'); }
+    return;
+  }
+
+  // history mode
+  if (!start) { showPickerMsg('请选择开始日期'); return; }
+  const dateEnd = end || start;
+  closeScanPicker();
+
+  if (start === dateEnd) {
+    // single date
+    setStatus('loading', `扫描 ${start}…`);
+    try {
+      await fetch('/api/scan', {method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({market, date: start})});
+      startPoll();
+    } catch(e) { setStatus('red', '请求失败'); }
+  } else {
+    // date range → batch
+    setStatus('loading', '启动批量扫描…');
+    try {
+      const r = await fetch('/api/scan_range', {method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({market, date_start: start, date_end: dateEnd})});
+      const j = await r.json();
+      if (!r.ok) { setStatus('red', j.error || '批量扫描失败'); return; }
+      startBatchPoll(market, j.trading_days);
+    } catch(e) { setStatus('red', '请求失败'); }
+  }
+}
+
+let _previewTimer = null;
+function updateScanPreview() {
+  clearTimeout(_previewTimer);
+  _previewTimer = setTimeout(async () => {
+    const start = document.getElementById('scanDateStart')?.value || '';
+    const end   = document.getElementById('scanDateEnd')?.value   || '';
+    const el    = document.getElementById('scanDatePreview');
+    if (!el) return;
+    if (!start) { el.textContent = ''; return; }
+    const dateEnd = end || start;
+    if (start === dateEnd) { el.textContent = ''; return; }
+    try {
+      const r = await fetch(`/api/trading_days?market=${currentMarket}&date_start=${start}&date_end=${dateEnd}`);
+      const j = await r.json();
+      el.textContent = j.count > 0 ? `📅 ${j.count} 个交易日` : '该区间无交易日';
+    } catch(_) { el.textContent = ''; }
+  }, 400);
+}
+
+let _batchPollTimer  = null;
+let _batchIdleChecks = 0;
+let _batchTotalDays  = 0;
+
+function startBatchPoll(market, totalDays) {
+  _batchTotalDays  = totalDays || 0;
+  _batchIdleChecks = 0;
+  if (_batchPollTimer) clearInterval(_batchPollTimer);
+  _batchPollTimer = setInterval(() => pollBatch(market), 2000);
+}
+
+async function pollBatch(market) {
+  try {
+    const bs = await fetch(`/api/scan_range/status?market=${market}`).then(r => r.json());
+    if (bs.status === 'running') {
+      _batchIdleChecks = 0;
+      const cur = bs.current_date || '';
+      setStatus('loading', `批量扫描 ${bs.done}/${bs.total}${cur ? ' · ' + cur : ''}`);
+      return;
+    }
+    if (bs.status === 'idle') {
+      _batchIdleChecks++;
+      if (_batchIdleChecks <= 3) return;  // wait up to 6s for thread to start
+    }
+    // done or timed-out idle
+    clearInterval(_batchPollTimer);
+    _batchPollTimer = null;
+    if (bs.status === 'done') {
+      const scanned = bs.total - bs.skipped;
+      showToast(`✅ 批量扫描完成：${scanned}/${bs.total} 个交易日`);
+      await loadScanHistory(market);
+    }
     startPoll();
   } catch(e) {
-    if (msg) { msg.textContent = '请求失败: ' + e; msg.style.display = ''; }
+    clearInterval(_batchPollTimer);
+    _batchPollTimer = null;
+    startPoll();
   }
+}
+
+function showPickerMsg(msg) {
+  const el = document.getElementById('scanPickerMsg');
+  if (el) { el.textContent = msg; el.style.display = msg ? '' : 'none'; }
 }
 
 let fullScanTimer = null;

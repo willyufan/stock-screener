@@ -48,6 +48,59 @@ from stock_analyzer import classify_stock
 
 logger = logging.getLogger(__name__)
 
+# ── 港股新浪 K线：共享 MiniRacer 实例，HTTP 并行，JS 解码串行 ─────────────────
+_hk_sina_js_lock   = threading.Lock()
+_hk_sina_js_engine = None
+
+def _get_hk_js_engine():
+    global _hk_sina_js_engine
+    if _hk_sina_js_engine is None:
+        try:
+            from py_mini_racer import MiniRacer
+            from akshare.stock.cons import hk_js_decode
+            _hk_sina_js_engine = MiniRacer()
+            _hk_sina_js_engine.eval(hk_js_decode)
+        except Exception as e:
+            logger.warning(f"MiniRacer 初始化失败: {e}")
+            _hk_sina_js_engine = None
+    return _hk_sina_js_engine
+
+def _fetch_hk_sina(symbol: str) -> pd.DataFrame | None:
+    """直连新浪港股接口，无频率限制，使用共享 MiniRacer 解码。"""
+    try:
+        from akshare.stock.cons import hk_sina_stock_hist_url
+        url = hk_sina_stock_hist_url.format(symbol)
+        r = requests.get(url, timeout=10)
+        if r.status_code != 200 or '=' not in r.text:
+            return None
+        raw = r.text.split('=')[1].split(';')[0].replace('"', '')
+        if not raw:
+            return None
+    except Exception as e:
+        logger.debug(f"[新浪港股] HTTP {symbol}: {e}")
+        return None
+    with _hk_sina_js_lock:
+        engine = _get_hk_js_engine()
+        if engine is None:
+            return None
+        try:
+            dict_list = engine.call('d', raw)
+        except Exception as e:
+            logger.debug(f"[新浪港股] JS解码 {symbol}: {e}")
+            return None
+    if not dict_list:
+        return None
+    df = pd.DataFrame(dict_list)
+    if 'date' not in df.columns:
+        return None
+    df['date'] = pd.to_datetime(df['date']).dt.date.astype(str)
+    for col in ('open', 'high', 'low', 'close', 'volume'):
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors='coerce')
+    if 'amount' not in df.columns and 'volume' in df.columns and 'close' in df.columns:
+        df['amount'] = df['volume'] * df['close']
+    return df.sort_values('date').reset_index(drop=True)
+
 # ── Tushare（可选，双 token）────────────────────────────────────────────────
 # _ts_pro  : 日线接口（daily / daily_basic / stock_basic …）
 # _ts_mins : 分钟接口（stk_mins）
@@ -58,16 +111,23 @@ import tushare as ts   # noqa: E402 — 即使 token 为空也先 import，以�
 
 
 def _init_tushare():
-    """从 config 读取 token 并（重新）初始化两个 pro_api 实例。"""
+    """
+    从环境变量或 config.py 读取 Token，并（重新）初始化两个 pro_api 实例。
+    优先级：环境变量 > config.py（生产环境可通过 env 注入，无需提交明文 token）
+    """
     global _ts_pro, _ts_mins
-    try:
-        import importlib, config as _cfg
-        importlib.reload(_cfg)
-        token_daily  = getattr(_cfg, 'TUSHARE_TOKEN_DAILY',  '') or ''
-        token_minute = getattr(_cfg, 'TUSHARE_TOKEN_MINUTE', '') or ''
-    except Exception as e:
-        logger.warning(f"读取 config 失败: {e}")
-        token_daily = token_minute = ''
+    # 环境变量优先
+    token_daily  = os.environ.get('TUSHARE_TOKEN_DAILY',  '')
+    token_minute = os.environ.get('TUSHARE_TOKEN_MINUTE', '')
+    # 未设置环境变量时回退到 config.py
+    if not token_daily or not token_minute:
+        try:
+            import importlib, config as _cfg
+            importlib.reload(_cfg)
+            token_daily  = token_daily  or getattr(_cfg, 'TUSHARE_TOKEN_DAILY',  '') or ''
+            token_minute = token_minute or getattr(_cfg, 'TUSHARE_TOKEN_MINUTE', '') or ''
+        except Exception as e:
+            logger.warning(f"读取 config 失败: {e}")
 
     if token_daily:
         try:
@@ -136,9 +196,12 @@ DAYS_LOOKBACK    = 60
 TOP10_DAYS       = 10
 MAX_WORKERS      = 6
 RATE_SLEEP       = 0.2
+HK_WORKERS = 8  # cap: more than ~10 concurrent MiniRacer calls crashes libmini_racer
 
 _DATA_DIR            = os.path.join(os.path.dirname(__file__), 'data')
 QUALIFIED_CODES_FILE = os.path.join(_DATA_DIR, 'qualified_codes.json')
+_HK_COMP_CACHE_FILE        = os.path.join(_DATA_DIR, 'hk_components_cache.json')
+_HK_COMP_CACHE_MAX_AGE_DAYS = 7
 
 os.makedirs(_DATA_DIR, exist_ok=True)
 
@@ -789,77 +852,68 @@ def get_a_share_stocks_realtime(progress_cb=None,
 #  港股：沪港通成分股
 # ════════════════════════════════════════════════════════════════
 
+def _load_hk_comp_cache() -> tuple[list[tuple[str, str]], bool]:
+    """Load cached 港股通 component list. Returns (pairs, is_fresh)."""
+    try:
+        with open(_HK_COMP_CACHE_FILE, encoding='utf-8') as f:
+            obj = json.load(f)
+        pairs = [tuple(p) for p in obj.get('pairs', [])]
+        saved_at = datetime.fromisoformat(obj['saved_at'])
+        age_days = (datetime.now() - saved_at).total_seconds() / 86400
+        return pairs, age_days < _HK_COMP_CACHE_MAX_AGE_DAYS
+    except Exception:
+        return [], False
+
 def _get_hk_connect_spot() -> tuple[list[tuple[str, str]], dict]:
     """
-    返回 ([(代码, 名称), ...], {代码: spot_dict}) 的沪港通成分股列表
-    spot_dict 包含当日实时行情字段
+    Returns (pairs, spot_map) where pairs = [(code, name), ...] for 沪深港通 stocks.
+    Uses 7-day local cache; refreshes from network when stale.
+    spot_map is always {} (spot prices fetched separately per stock).
     """
-    # 1. akshare stock_hk_ggt_components_em（首选，含实时行情）
+    # 0. Fresh cache → use directly
+    cached_pairs, is_fresh = _load_hk_comp_cache()
+    if is_fresh and cached_pairs:
+        return cached_pairs, {}
+
+    # 1. akshare stock_hk_ggt_components_em
     try:
         df = ak.stock_hk_ggt_components_em()
         if df is not None and not df.empty:
-            codes = df['代码'].astype(str).str.zfill(5).tolist()
-            names = df['名称'].astype(str).tolist()
-            pairs = list(zip(codes, names))
-            # Build spot map: {code: {price, change_pct, amount_yi, ...}}
-            spot_map = {}
-            for _, row in df.iterrows():
-                code = str(row['代码']).zfill(5)
-                try:
-                    price  = float(row['最新价'])
-                    chg    = float(row['涨跌幅'])
-                    amt    = float(row['成交额']) / 1e8  # → 亿HKD
-                    spot_map[code] = {
-                        'current_price': price,
-                        'change_pct':    round(chg, 2),
-                        'today_amt_yi':  round(amt, 2),
-                    }
-                except Exception:
-                    pass
-            logger.info(f"[港股通] stock_hk_ggt_components_em 成功，共 {len(pairs)} 只")
-            return pairs, spot_map
+            code_col = next((c for c in df.columns if '代码' in c or 'code' in c.lower()), df.columns[0])
+            name_col = next((c for c in df.columns if '名称' in c or 'name' in c.lower()), df.columns[1])
+            pairs = [(str(r[code_col]).zfill(5), str(r[name_col])) for _, r in df.iterrows()]
+            _save_hk_comp_cache(pairs)
+            return pairs, {}
     except Exception as e:
-        logger.warning(f"[港股通] stock_hk_ggt_components_em 失败: {e}")
+        logger.warning(f"[港股通] akshare stock_hk_ggt_components_em 失败: {e}")
 
-    # 2. 尝试旧版函数名（兼容不同akshare版本）
-    for fn_name in ('stock_hk_ggt_components_df', 'stock_em_hk_ggt_components',
-                    'stock_hk_ggt_component'):
+    # 2. akshare legacy functions
+    for fn_name in ('stock_hk_ggt_constituents_em', 'stock_hk_hsgt_em'):
         try:
-            fn = getattr(ak, fn_name, None)
-            if fn is None:
-                continue
-            df = fn()
-            if df is None or df.empty:
-                continue
-            code_col = next((c for c in df.columns if '代码' in c or 'code' in c.lower()), None)
-            name_col = next((c for c in df.columns if '名称' in c or 'name' in c.lower()), None)
-            if code_col:
-                codes = df[code_col].astype(str).str.zfill(5).tolist()
-                names = df[name_col].astype(str).tolist() if name_col else codes
-                logger.info(f"[港股通] {fn_name} 成功，共 {len(codes)} 只")
-                return list(zip(codes, names)), {}
-        except Exception as e:
-            logger.debug(f"港股通接口 {fn_name} 失败: {e}")
+            df = getattr(ak, fn_name)()
+            if df is not None and not df.empty:
+                code_col = next((c for c in df.columns if '代码' in c or 'code' in c.lower()), df.columns[0])
+                name_col = next((c for c in df.columns if '名称' in c or 'name' in c.lower()), df.columns[1])
+                pairs = [(str(r[code_col]).zfill(5), str(r[name_col])) for _, r in df.iterrows()]
+                _save_hk_comp_cache(pairs)
+                return pairs, {}
+        except Exception:
+            continue
 
-    # 3. 回退：Tushare hk_hold
-    if _ts_pro is not None:
-        try:
-            for td_offset in range(5):
-                td = (datetime.now() - timedelta(days=td_offset)).strftime('%Y%m%d')
-                for exchange in ('SH', 'SZ'):
-                    df = _ts_pro.hk_hold(trade_date=td, exchange=exchange)
-                    if df is not None and not df.empty:
-                        pairs = list(zip(
-                            df['code'].astype(str).str.zfill(5),
-                            df['name'].astype(str)
-                        ))
-                        logger.info(f"[港股通] Tushare hk_hold {td}/{exchange}，共 {len(pairs)} 只")
-                        return pairs, {}
-        except Exception as e:
-            logger.debug(f"Tushare hk_hold 失败: {e}")
+    # 3. Stale cache fallback
+    if cached_pairs:
+        logger.warning("[港股通] 网络获取失败，使用过期缓存")
+        return cached_pairs, {}
 
-    logger.warning("港股通成分股获取失败，港股将无数据")
-    return [], {}
+    raise RuntimeError("无法获取港股通成分股列表，且无可用缓存")
+
+def _save_hk_comp_cache(pairs: list[tuple[str, str]]):
+    try:
+        os.makedirs(os.path.dirname(_HK_COMP_CACHE_FILE), exist_ok=True)
+        with open(_HK_COMP_CACHE_FILE, 'w', encoding='utf-8') as f:
+            json.dump({'saved_at': datetime.now().isoformat(), 'pairs': pairs}, f, ensure_ascii=False)
+    except Exception as e:
+        logger.warning(f"[港股通] 缓存写入失败: {e}")
 
 
 def _get_hk_connect_codes() -> list[tuple[str, str]]:
@@ -874,57 +928,36 @@ def _hk_to_ts(symbol: str) -> str:
 
 
 def _fetch_hk_hist(symbol: str, end_date: str | None = None) -> pd.DataFrame | None:
-    _limiter.wait()
-    ed = _end_date(end_date)
-    sd = _start_date(ed)
+    """Fetch HK stock daily K-line. symbol = 5-digit code e.g. '00700'."""
+    today   = datetime.now().strftime('%Y%m%d')
+    ed      = (end_date or today).replace('-', '')
+    sd      = '20200101'
+    ed_dash = f"{ed[:4]}-{ed[4:6]}-{ed[6:]}"
+    sd_dash = f"{sd[:4]}-{sd[4:6]}-{sd[6:]}"
 
-    # 1. Tushare Pro hk_daily（主）
-    if _ts_pro is not None:
+    # 1. 新浪港股（无频率限制，共享 MiniRacer）
+    df = _fetch_hk_sina(symbol)
+    if df is not None and not df.empty:
+        df = df[df['date'] <= ed_dash]
+        if not df.empty:
+            return df
+
+    # 2. Tushare hk_daily（备用）
+    if _ts_pro:
         try:
-            df = _ts_pro.hk_daily(
-                ts_code=_hk_to_ts(symbol),
-                start_date=sd, end_date=ed
-            )
-            if df is not None and not df.empty:
-                df['amount'] = df['amount'].astype(float)  # 已是 HKD 元
-                result = _norm_hist(df)
-                if len(result) >= 10:
-                    return result
-        except Exception as e:
-            logger.debug(f"港股历史(Tushare) {symbol}: {e}")
-
-    # 2. akshare stock_hk_hist（备）
-    try:
-        df = ak.stock_hk_hist(
-            symbol=symbol, period='daily',
-            start_date=sd, end_date=ed, adjust='qfq',
-        )
-        if df is not None and not df.empty:
-            result = _norm_hist(df)
-            if len(result) >= 10:
-                return result
-    except Exception as e:
-        logger.debug(f"港股历史(akshare) {symbol}: {e}")
-
-    # 3. yfinance（备2）
-    if _HAS_YFINANCE:
-        try:
-            ticker = str(int(symbol.lstrip('0') or '0')).zfill(4)
-            raw = yf.download(f"{ticker}.HK",
-                              start=(datetime.strptime(ed, '%Y%m%d') - timedelta(days=DAYS_LOOKBACK)).strftime('%Y-%m-%d'),
-                              end=(datetime.strptime(ed, '%Y%m%d') + timedelta(days=1)).strftime('%Y-%m-%d'),
-                              progress=False, auto_adjust=True)
+            _limiter.wait()
+            raw = _ts_pro.hk_daily(ts_code=f"{symbol}.HK", start_date=sd, end_date=ed)
             if raw is not None and not raw.empty:
-                df = raw.reset_index().rename(columns={
-                    'Date': 'date', 'Open': 'open', 'High': 'high',
-                    'Low': 'low', 'Close': 'close', 'Volume': 'volume',
-                })
-                df['amount']     = df['volume'].astype(float) * df['close'].astype(float)
-                df['change_pct'] = df['close'].astype(float).pct_change() * 100
-                df['date']       = df['date'].astype(str)
-                return df.sort_values('date').reset_index(drop=True)
+                raw = raw.rename(columns={'trade_date': 'date', 'vol': 'volume', 'amount': 'amount'})
+                raw['date'] = pd.to_datetime(raw['date']).dt.date.astype(str)
+                for col in ('open', 'high', 'low', 'close', 'volume'):
+                    if col in raw.columns:
+                        raw[col] = pd.to_numeric(raw[col], errors='coerce')
+                if 'amount' not in raw.columns and 'volume' in raw.columns and 'close' in raw.columns:
+                    raw['amount'] = raw['volume'] * raw['close']
+                return raw.sort_values('date').reset_index(drop=True)
         except Exception as e:
-            logger.debug(f"港股历史(yfinance) {symbol}: {e}")
+            logger.debug(f"[Tushare hk_daily] {symbol}: {e}")
 
     return None
 
@@ -988,7 +1021,7 @@ def get_hk_connect_stocks(progress_cb=None, date: str | None = None) -> list[dic
     logger.info(f"港股通成分股 {len(pairs)} 只，实时行情 {len(spot_map)} 只")
     results, total, done = [], len(pairs), 0
 
-    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
+    with ThreadPoolExecutor(max_workers=HK_WORKERS) as pool:
         futures = {
             pool.submit(_process_hk_stock, code, name, spot_map.get(code), date): code
             for code, name in pairs
