@@ -58,10 +58,10 @@ def classify_stock(hist_df: pd.DataFrame, pe_ttm: float = None, pb: float = None
     if len(closes) >= 3 and closes.iloc[-1] > closes.iloc[-3]:
         right_score += 1; signals.append('近3日持续上涨')
     if len(hist_df) >= 5:
-        recent5 = hist_df.tail(5)
-        chg_col = recent5.get('change_pct', pd.Series([0]*5))
-        up_vol = recent5[chg_col > 0]['volume'].sum() if 'volume' in recent5 else 0
-        dn_vol = recent5[chg_col <= 0]['volume'].sum() if 'volume' in recent5 else 0
+        recent5 = hist_df.tail(5).reset_index(drop=True)
+        chg_col = recent5['change_pct'] if 'change_pct' in recent5.columns else pd.Series([0]*5)
+        up_vol = recent5[chg_col > 0]['volume'].sum() if 'volume' in recent5.columns else 0
+        dn_vol = recent5[chg_col <= 0]['volume'].sum() if 'volume' in recent5.columns else 0
         if up_vol > dn_vol:
             right_score += 1; signals.append('量能配合上涨')
     # MACD-like: 短期动量
@@ -85,8 +85,8 @@ def classify_stock(hist_df: pd.DataFrame, pe_ttm: float = None, pb: float = None
         if abs(recent.iloc[-1] - recent.iloc[-2]) < abs(recent.iloc[-3] - recent.iloc[-4]):
             left_score += 1; signals.append('跌幅收窄企稳')
     if len(hist_df) >= 5:
-        recent5 = hist_df.tail(5)
-        chg_col = recent5.get('change_pct', pd.Series([0]*5)) if 'change_pct' in recent5.columns else pd.Series([0]*5)
+        recent5 = hist_df.tail(5).reset_index(drop=True)
+        chg_col = recent5['change_pct'] if 'change_pct' in recent5.columns else pd.Series([0]*5)
         dn_days = recent5[chg_col < 0]
         if len(dn_days) >= 2 and 'volume' in dn_days.columns:
             if dn_days['volume'].is_monotonic_decreasing:
