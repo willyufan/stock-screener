@@ -168,9 +168,11 @@ def _compute_signal_changes(cur_data: dict, prev_data: dict) -> dict:
         prev_sig  = prev_s.get('signal_strength', '')
         if cur_sig == prev_sig:
             continue
-        if cur_sig == '⚡强烈买入' and prev_side in ('观望', '左侧'):
+        # 任何信号升级到强烈买入（不限前一天 side）
+        if cur_sig == '⚡强烈买入' and prev_sig != '⚡强烈买入':
             buy_changes.append({**cur, 'prev_side': prev_side, 'prev_signal': prev_sig})
-        elif cur_sig == '🔴强烈卖出' and prev_side in ('右侧', '观望'):
+        # 任何信号降级到强烈卖出
+        elif cur_sig == '🔴强烈卖出' and prev_sig != '🔴强烈卖出':
             sell_changes.append({**cur, 'prev_side': prev_side, 'prev_signal': prev_sig})
 
     buy_changes.sort(key=lambda x: x.get('right_score', 0), reverse=True)
@@ -852,9 +854,9 @@ def api_signal_changes():
         if cur_sig == prev_sig:
             continue
 
-        if cur_sig == '⚡强烈买入' and prev_side in ('观望', '左侧'):
+        if cur_sig == '⚡强烈买入' and prev_sig != '⚡强烈买入':
             buy_changes.append({**cur, 'prev_side': prev_side, 'prev_signal': prev_sig})
-        elif cur_sig == '🔴强烈卖出' and prev_side in ('右侧', '观望'):
+        elif cur_sig == '🔴强烈卖出' and prev_sig != '🔴强烈卖出':
             sell_changes.append({**cur, 'prev_side': prev_side, 'prev_signal': prev_sig})
 
     buy_changes.sort(key=lambda x: x.get('right_score', 0), reverse=True)
